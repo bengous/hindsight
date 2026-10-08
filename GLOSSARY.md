@@ -15,7 +15,7 @@ A file that records all or part of a session.
 _Avoid_: log, history
 
 **Human Message**:
-Text the human typed in a session. Text that the harness, tools, plugins or other agents inject, and text the human pasted from another source, is not a human message.
+Text the human typed or dictated in a session, including the human's own dictation pasted into it. Text that the harness, tools, plugins or other agents inject, and text the human pasted from a document, a page or another conversation, is not a human message.
 _Avoid_: user message, prompt
 
 **Quote**:
@@ -35,7 +35,7 @@ A fork taken at the end of a turn that answers a fixed set of questions about th
 _Avoid_: fork (the mechanism, not the role), retro, reflection, recap
 
 **Debrief Gate**:
-The check that decides whether a turn is worth a debrief, deterministic rules first, then a cheap model judgment; when it opens, it tells the debrief what to look at.
+The check that decides whether a turn is worth a debrief: code first, then, only when the code says it may be, a cheap model classifier that reads the code's result and the last messages, never the whole session. When it opens, it tells the debrief what to look at.
 _Avoid_: scoring engine, trigger, filter
 
 **Observation**:
@@ -85,27 +85,27 @@ Done outside every working agent's session, with its own budget, so that no work
 _Avoid_: background, async
 
 **Verdict**:
-How a recurring steer relates to the rules: missing (no rule states it), ignored (a loaded rule states it and the agent broke it), misplaced (a rule states it but did not load when needed), conflict (the steer contradicts a rule), or hold (too weak to act on yet).
+How a group of notes relates to the rules: missing (no rule states it), ignored (a loaded rule states it and the agent broke it), misplaced (a rule states it but did not load when needed), conflict (a steer contradicts a rule), unclear (a loaded rule states it in words that misled the agent), or hold (too weak to act on yet).
 _Avoid_: watch (as a verdict), finding kind, classification
 
 ### Jobs
 
 **Learn**:
 The job that reads steers and observations across sessions and proposes to add, change or relocate rules, including a rule the human now contradicts.
-_Avoid_: harvest, extraction, dreaming
+_Avoid_: harvest, extraction, dreaming, run
 
 **Prune**:
-The job that reads the code and its history, never the human's messages, and proposes to fix or remove the rules it has made stale.
+The job that proposes to fix or remove rules from two sources only: the stale rules a debrief reports, once the code confirms the edit, and the dead references its code checks find. It never reads the human's messages.
 _Avoid_: cleanup, audit, recheck
 
 ### Review
 
 **Proposal**:
-One reviewable change to one rule file, with its evidence and its reasoning. A proposal is pending until the human accepts or rejects it; it is superseded when a newer proposal targets the same rule, and expired when the rule changed so the change no longer applies.
+One reviewable change, with its target, its evidence and its reasoning: an exact edit of one rule file, or a description that only a handoff can carry out. A proposal is pending until the human accepts it, rejects it or adds it to a handoff; it is superseded when a newer proposal targets the same rule, and expired when the rule changed so the change no longer applies.
 _Avoid_: card (the review page's display of a proposal), suggestion, candidate, finding
 
 **Handoff**:
-Accepted proposals that the human chooses to give to an agent session the human starts, for changes an exact text edit cannot make. Without a handoff, an accepted proposal is applied as one commit.
+Proposals that the human gives to an agent session the human starts, for changes an exact text edit cannot make. Without a handoff, an accepted proposal is applied as one commit, or as one write of a global rule file outside any repository.
 _Avoid_: delegation, auto-apply
 
 **Notice**:
@@ -117,12 +117,8 @@ The human's pass over pending proposals on hindsight's local page, where each de
 _Avoid_: round, approval, triage
 
 **Decision**:
-The human's acceptance or rejection of a proposal; a rejection carries a reason.
+The human's acceptance, rejection or hand-off of a proposal; a rejection carries a reason.
 
 **Ledger**:
 The record of every decision, which keeps hindsight from proposing a rejected change again.
 _Avoid_: history, decisions log
-
-**Run**:
-One out-of-band pass of hindsight over recent sessions and the current rule files.
-_Avoid_: dream, job, batch

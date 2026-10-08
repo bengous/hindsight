@@ -8,7 +8,7 @@ Out-of-band curation of agent rules. `hindsight run` reads recent Claude Code tr
 
 - Nothing reaches a rule file without a human decision on the review page.
 - Only human-typed text can become a correction. Tool output, peer messages, skill bodies and foreign pastes never do.
-- Model calls are pure I/O (`claude -p`, no tools, JSON schema out). The parent process owns every write.
+- Model calls that start fresh (the Debrief Gate's classifier, Learn) are pure I/O (`claude -p`, no tools, JSON schema out). A Debrief is the exception: it keeps its session's model, tools and system prompt, a hook blocks every tool call, and it answers in text. The parent process owns every write.
 - Evidence ids (`<sessionId>:<uuid>`, `mem:<path>`) are minted by the code. An extracted quote must be a verbatim substring of a human message of its batch: the code locates it and cites that message, the earliest when the human repeated it. An item whose quote matches no message is dropped and counted. A curator output citing an unknown id fails the batch.
 - Prevalence is computed by the code, never by a model.
 - Transcript excerpts stay in `~/.local/state/hindsight/` (mode 0700). They never reach a commit, a fixture or a log outside it.
