@@ -100,6 +100,16 @@ export type RuleFile = {
   readonly bullets: readonly RuleBullet[];
 };
 
+export type StaleFinding = {
+  /** sha1 of sourcePath + reason + detail, 10 hex: stable across runs. */
+  readonly id: string;
+  readonly sourcePath: string;
+  readonly repoRoot: string | null;
+  readonly bulletId: string | null;
+  readonly reason: "dead-glob" | "missing-path" | "missing-command" | "missing-symbol";
+  readonly detail: string;
+};
+
 /** Output of the per-session extraction call. */
 export type SteeringItem = {
   readonly evidenceId: EvidenceId;
@@ -153,6 +163,10 @@ export type Proposal = {
   readonly title: string;
   /** Reasoning for the human, in French. */
   readonly why: string;
+  /** One English sentence stating the default behaviour; the commit body starts with it. */
+  readonly lesson: string;
+  /** English imperative commit subject, at most 72 characters. */
+  readonly commitSubject: string;
   readonly target: {
     readonly repoRoot: string;
     readonly sourcePath: string;
