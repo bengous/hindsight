@@ -2,7 +2,7 @@ import type { RuleFile, StaleFinding } from "../types.ts";
 import { existsSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { listFiles, run } from "./git.ts";
-import { expandBraces, globMatcher, matchesOnDisk } from "./glob.ts";
+import { expandBraces, globMatcher, matchesOnDisk, ownerDir } from "./glob.ts";
 import { isInside } from "./inventory.ts";
 import { bodyLines, bulletAt, codeSpans } from "./markdown.ts";
 
@@ -34,15 +34,6 @@ function finding(
     reason,
     detail,
   };
-}
-
-/** Directory a rule file speaks for: the parent of its `.claude/`, else its own directory. */
-function ownerDir(file: RuleFile, repoRoot: string): string {
-  const parts = relative(repoRoot, file.sourcePath).split("/");
-  const claudeAt = parts.findIndex(
-    (part, index) => part === ".claude" && (index === parts.length - 2 || parts[index + 1] === "rules"),
-  );
-  return join(repoRoot, ...(claudeAt === -1 ? parts.slice(0, -1) : parts.slice(0, claudeAt)));
 }
 
 function deadGlobs(file: RuleFile, repoRoot: string, view: RepoView): readonly StaleFinding[] {

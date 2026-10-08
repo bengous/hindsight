@@ -35,6 +35,7 @@ function request(
     lesson: "Build orders in tests with the order factory.",
     prevalence: { sessions: 5, days: 4, repos: 1, firstAt: "2026-09-14T08:00:00Z", lastAt: "2026-10-06T16:00:00Z" },
     excerpts: ["utilise la fabrique makeOrder, pas un objet"],
+    memoryNotes: 0,
     ...overrides,
   };
 }
@@ -93,6 +94,31 @@ describe("applyDelta", () => {
       reason: "old-text-ambiguous",
     });
     expect(readFileSync(join(repo.root, "AGENTS.md"), "utf8")).toBe(RULES);
+  });
+
+  test("counts overlapping matches as ambiguous, as the curator gate does", async () => {
+    const repo = fixture();
+    repo.write("AGENTS.md", "- Use aaa.\n");
+    repo.git("commit", "-qam", "triple");
+    expect(await applyDelta(request(repo, { edits: [{ oldText: "aa", newText: "a" }] }), noTargets)).toMatchObject({
+      reason: "old-text-ambiguous",
+    });
+    expect(readFileSync(join(repo.root, "AGENTS.md"), "utf8")).toBe("- Use aaa.\n");
+  });
+
+  test("states the evidence of a finding without sessions", async () => {
+    const zero = { sessions: 0, days: 0, repos: 0, firstAt: "2026-10-08T00:00:00Z", lastAt: "2026-10-08T00:00:00Z" };
+    const scanRepo = fixture();
+    await applyDelta(request(scanRepo, { edits: [rename] }, { prevalence: zero }), noTargets);
+    expect(scanRepo.git("log", "-1", "--format=%B")).toContain("Evidence: deterministic rule scan\n");
+    const noteRepo = fixture();
+    await applyDelta(request(noteRepo, { edits: [rename] }, { prevalence: zero, memoryNotes: 2 }), noTargets);
+    expect(noteRepo.git("log", "-1", "--format=%B")).toContain("Evidence: 2 memory notes\n");
+    const mixedRepo = fixture();
+    await applyDelta(request(mixedRepo, { edits: [rename] }, { memoryNotes: 1 }), noTargets);
+    expect(mixedRepo.git("log", "-1", "--format=%B")).toContain(
+      "Evidence: 5 sessions, 4 days, 1 repo, 1 memory note\n",
+    );
   });
 
   test("refuses without a checkout, outside it, or on a dirty file", async () => {

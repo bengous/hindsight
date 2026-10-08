@@ -28,6 +28,10 @@ describe("chezmoiResolver", () => {
       "source/dot_agents/AGENTS.md": "- rule\n",
       "source/dot_claude/AGENTS.md.tmpl": '{{ include "dot_agents/AGENTS.md" }}\n',
       "source/dot_claude/CLAUDE.md": "@AGENTS.md\n",
+      "source/dot_claude/output-styles/plain.md.tmpl":
+        '---\nname: plain\n---\n- Style rule.\n{{ template "style-core.md" . }}\n{{ include "shared/extra.md" }}\n{{ template "missing.md" . }}\n',
+      "source/.chezmoitemplates/style-core.md": "- Answer in plain words.\n",
+      "source/shared/extra.md": "- Extra rule.\n",
       "bin/chezmoi": [
         "#!/bin/sh",
         'if [ "$1" != source-path ]; then exit 2; fi',
@@ -35,6 +39,7 @@ describe("chezmoiResolver", () => {
         `case "$2" in`,
         `  "${home}/.claude/AGENTS.md") echo "${source}/dot_claude/AGENTS.md.tmpl" ;;`,
         `  "${home}/.claude/CLAUDE.md") echo "${source}/dot_claude/CLAUDE.md" ;;`,
+        `  "${home}/.claude/output-styles/plain.md") echo "${source}/dot_claude/output-styles/plain.md.tmpl" ;;`,
         `  "${home}/slow.md") sleep 5 ;;`,
         '  *) echo "chezmoi: $2: not managed" >&2; exit 1 ;;',
         "esac",
@@ -51,13 +56,22 @@ describe("chezmoiResolver", () => {
 
   test("unwraps an include-only template to the included source", async () => {
     const resolve = chezmoiResolver({ home, timeoutMs: 2000 });
-    expect(await resolve(join(home, ".claude/AGENTS.md"))).toBe(join(source, "dot_agents/AGENTS.md"));
-    expect(await resolve(join(home, ".claude/CLAUDE.md"))).toBe(join(source, "dot_claude/CLAUDE.md"));
+    expect(await resolve(join(home, ".claude/AGENTS.md"))).toEqual([join(source, "dot_agents/AGENTS.md")]);
+    expect(await resolve(join(home, ".claude/CLAUDE.md"))).toEqual([join(source, "dot_claude/CLAUDE.md")]);
+  });
+
+  test("adds the existing files a template pulls in with template or include", async () => {
+    const resolve = chezmoiResolver({ home, timeoutMs: 2000 });
+    expect(await resolve(join(home, ".claude/output-styles/plain.md"))).toEqual([
+      join(source, "dot_claude/output-styles/plain.md.tmpl"),
+      join(source, ".chezmoitemplates/style-core.md"),
+      join(source, "shared/extra.md"),
+    ]);
   });
 
   test("keeps an unmanaged file as its own source", async () => {
     const resolve = chezmoiResolver({ home, timeoutMs: 2000 });
-    expect(await resolve(join(home, "other.md"))).toBe(join(home, "other.md"));
+    expect(await resolve(join(home, "other.md"))).toEqual([join(home, "other.md")]);
   });
 
   test("fails on a timeout instead of guessing", async () => {

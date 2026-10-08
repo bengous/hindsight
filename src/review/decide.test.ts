@@ -91,6 +91,23 @@ describe("decide", () => {
     expect(recorded[0]).toMatchObject({ decision: "accepted", editedOp: null, commit: "abc1234def" });
   });
 
+  test("counts the memory notes among the evidence for the commit message", async () => {
+    const { deps, applied } = harness(committed);
+    const seeded: PendingProposal = {
+      runId: "run-7",
+      proposal: {
+        ...withOp.proposal,
+        evidence: [
+          ...withOp.proposal.evidence.slice(0, 1),
+          { evidenceId: "mem:/notes/a.md", sessionTitle: "a", timestamp: "2026-09-01T00:00:00Z", quote: "note a" },
+          { evidenceId: "mem:/notes/b.md", sessionTitle: "b", timestamp: "2026-09-02T00:00:00Z", quote: "note b" },
+        ],
+      },
+    };
+    await decide(seeded, { fingerprint: "f-factory", decision: "accepted", reason: null, newTexts: null }, deps);
+    expect(applied[0]?.memoryNotes).toBe(2);
+  });
+
   test("applies and records the human's edited text", async () => {
     const { deps, applied, recorded } = harness(committed);
     await decide(

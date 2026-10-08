@@ -2,6 +2,7 @@ import type { DeltaOp, EvidenceItem, FindingKind, Prevalence, Proposal } from ".
 import type { Card } from "./round.ts";
 import { basename, relative } from "node:path";
 import { reviewClient, type ClientConfig } from "./client.ts";
+import { isMemoryNote } from "./decide.ts";
 import { lineDiff } from "./diff.ts";
 
 export type PageInput = {
@@ -89,6 +90,18 @@ function renderPrevalence(prevalence: Prevalence): string {
   ].join(" · ");
 }
 
+function renderStats(proposal: Proposal, input: PageInput): string {
+  const fromSessions = proposal.evidence.filter((item) => !isMemoryNote(item.evidenceId));
+  const notes = proposal.evidence.length - fromSessions.length;
+  const parts = [
+    ...(proposal.prevalence.sessions === 0 ? [] : [renderPrevalence(proposal.prevalence)]),
+    ...(notes === 0 ? [] : [`<b>${plural(notes, "note mémoire", "notes mémoire")}</b>`]),
+  ];
+  const summary = parts.length === 0 ? "<b>constat déterministe</b>" : parts.join(" · ");
+  const strip = fromSessions.length === 0 ? "" : renderStrip(fromSessions, input.now, input.timeZone);
+  return `<div class="prev">${summary}</div>${strip}`;
+}
+
 function renderDiff(op: DeltaOp): string {
   const hunks = op.edits.map((edit) => {
     const created = edit.oldText === "" ? `<div class="ln note">nouveau fichier</div>` : "";
@@ -166,11 +179,7 @@ function renderCard(card: Card, rank: number, input: PageInput): string {
     <span class="badge">${kindLabel[proposal.kind]}</span>
     <h2 class="claim" title="${escapeHtml(proposal.title)}">${escapeHtml(proposal.title)}</h2>
     <div class="stats">
-      ${
-        proposal.evidence.length === 0
-          ? `<div class="prev"><b>constat déterministe</b></div>`
-          : `<div class="prev">${renderPrevalence(proposal.prevalence)}</div>${renderStrip(proposal.evidence, input.now, input.timeZone)}`
-      }
+      ${renderStats(proposal, input)}
       <div class="conf c-${proposal.confidence}">${confidenceLabel[proposal.confidence]}</div>
     </div>
   </header>

@@ -21,6 +21,8 @@ export type ApplyRequest = {
   readonly prevalence: Prevalence;
   /** Verbatim evidence quotes: the commit message must contain none of them. */
   readonly excerpts: readonly string[];
+  /** Old auto-memory notes among the evidence; prevalence counts transcript sessions only. */
+  readonly memoryNotes: number;
 };
 
 export type ApplyRefusal =
@@ -61,7 +63,7 @@ function squash(text: string): string {
 
 function occurrences(text: string, needle: string): number {
   let count = 0;
-  for (let at = text.indexOf(needle); at !== -1; at = text.indexOf(needle, at + needle.length)) count++;
+  for (let at = text.indexOf(needle); at !== -1; at = text.indexOf(needle, at + 1)) count++;
   return count;
 }
 
@@ -70,14 +72,22 @@ function preview(text: string): string {
   return line.length > 80 ? `${line.slice(0, 77)}...` : line;
 }
 
-function commitMessage(request: ApplyRequest): string {
+function evidenceLine(request: ApplyRequest): string {
   const { sessions, days, repos } = request.prevalence;
+  const parts = [
+    ...(sessions === 0 ? [] : [plural(sessions, "session"), plural(days, "day"), plural(repos, "repo")]),
+    ...(request.memoryNotes === 0 ? [] : [plural(request.memoryNotes, "memory note")]),
+  ];
+  return `Evidence: ${parts.length === 0 ? "deterministic rule scan" : parts.join(", ")}`;
+}
+
+function commitMessage(request: ApplyRequest): string {
   return [
     request.subject.replace(/\s+/g, " ").trim(),
     "",
     request.lesson.trim(),
     "",
-    `Evidence: ${plural(sessions, "session")}, ${plural(days, "day")}, ${plural(repos, "repo")}`,
+    evidenceLine(request),
     `hindsight run ${request.runId}, proposal ${request.proposalId}`,
     "",
   ].join("\n");

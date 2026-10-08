@@ -17,6 +17,10 @@ export type RequestCheck =
 
 const MAX_REASON_CHARS = 500;
 
+export function isMemoryNote(evidenceId: string): boolean {
+  return evidenceId.startsWith("mem:");
+}
+
 const refusalText: Record<ApplyRefusal, string> = {
   "no-checkout": "aucun dépôt git ne contient ce fichier",
   "outside-checkout": "le fichier est hors du dépôt cible",
@@ -96,6 +100,7 @@ export async function decide(
     lesson: proposal.lesson,
     prevalence: proposal.prevalence,
     excerpts: proposal.evidence.map((item) => item.quote),
+    memoryNotes: proposal.evidence.filter((item) => isMemoryNote(item.evidenceId)).length,
   });
   if (result.kind === "refused") return { ok: false, error: `${refusalText[result.reason]} (${result.detail})` };
 

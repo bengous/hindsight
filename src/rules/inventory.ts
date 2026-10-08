@@ -64,6 +64,9 @@ function repoCandidates(repoRoot: string, files: readonly string[]): readonly Ca
     if (rulesAt !== -1) {
       return name.endsWith(".md") ? [scoped(join(repoRoot, file), parts.slice(0, rulesAt).join("/"))] : [];
     }
+    if (parts.length === 3 && parts[0] === ".claude" && parts[1] === "output-styles") {
+      return name.endsWith(".md") ? [scoped(join(repoRoot, file), "")] : [];
+    }
     if (!instructionNames.has(name)) return [];
     const dir = parts.slice(0, -1);
     const base = dir.at(-1) === ".claude" ? dir.slice(0, -1) : dir;
@@ -75,11 +78,13 @@ function repoCandidates(repoRoot: string, files: readonly string[]): readonly Ca
 function globalCandidates(home: string): readonly Candidate[] {
   const claudeDir = join(home, ".claude");
   const roots = ["CLAUDE.md", "AGENTS.md"].map((name) => join(claudeDir, name)).filter(isFile);
-  const rulesDir = join(claudeDir, "rules");
-  const rules = existsSync(rulesDir)
-    ? [...new Bun.Glob("**/*.md").scanSync({ cwd: rulesDir, followSymlinks: true })].map((file) => join(rulesDir, file))
-    : [];
-  return [...roots, ...rules].map((loadedPath) => ({ loadedPath, scope: "global", impliedPaths: null }));
+  const markdownUnder = (dir: string, pattern: string): readonly string[] =>
+    existsSync(dir)
+      ? [...new Bun.Glob(pattern).scanSync({ cwd: dir, followSymlinks: true })].map((file) => join(dir, file))
+      : [];
+  const rules = markdownUnder(join(claudeDir, "rules"), "**/*.md");
+  const styles = markdownUnder(join(claudeDir, "output-styles"), "*.md");
+  return [...roots, ...rules, ...styles].map((loadedPath) => ({ loadedPath, scope: "global", impliedPaths: null }));
 }
 
 async function withImports(candidates: readonly Candidate[], home: string): Promise<readonly Candidate[]> {
@@ -102,21 +107,32 @@ async function withImports(candidates: readonly Candidate[], home: string): Prom
   return all;
 }
 
-async function toRuleFile(candidate: Candidate, repoHint: string | null, env: InventoryEnv): Promise<RuleFile> {
+/** One rule file per file to edit: a template and the files it pulls in all answer for the same loaded path. */
+async function toRuleFiles(
+  candidate: Candidate,
+  repoHint: string | null,
+  env: InventoryEnv,
+): Promise<readonly RuleFile[]> {
   const inRepo = repoHint !== null && isInside(repoHint, candidate.loadedPath);
-  const sourcePath = realpathSync(inRepo ? candidate.loadedPath : await env.resolveSource(candidate.loadedPath));
-  const repoRoot =
-    repoHint !== null && isInside(repoHint, sourcePath) ? repoHint : await gitToplevel(dirname(sourcePath));
-  const text = await Bun.file(sourcePath).text();
-  return {
-    loadedPath: candidate.loadedPath,
-    sourcePath,
-    repoRoot,
-    scope: candidate.scope,
-    blobHash: await hashObject(sourcePath, dirname(sourcePath)),
-    paths: frontmatterPaths(text) ?? candidate.impliedPaths,
-    bullets: ruleBullets(text, idPrefixFor(candidate.loadedPath, inRepo ? repoHint : null, env.home)),
-  };
+  const sources = inRepo ? [candidate.loadedPath] : await env.resolveSource(candidate.loadedPath);
+  const idPrefix = idPrefixFor(candidate.loadedPath, inRepo ? repoHint : null, env.home);
+  return Promise.all(
+    sources.map(async (source): Promise<RuleFile> => {
+      const sourcePath = realpathSync(source);
+      const repoRoot =
+        repoHint !== null && isInside(repoHint, sourcePath) ? repoHint : await gitToplevel(dirname(sourcePath));
+      const text = await Bun.file(sourcePath).text();
+      return {
+        loadedPath: candidate.loadedPath,
+        sourcePath,
+        repoRoot,
+        scope: candidate.scope,
+        blobHash: await hashObject(sourcePath, dirname(sourcePath)),
+        paths: frontmatterPaths(text) ?? candidate.impliedPaths,
+        bullets: ruleBullets(text, idPrefix),
+      };
+    }),
+  );
 }
 
 async function checkoutRoot(repoRoot: string): Promise<string> {
@@ -141,12 +157,12 @@ export async function inventory(
   };
 
   for (const candidate of await withImports(globalCandidates(env.home), env.home)) {
-    add(await toRuleFile(candidate, null, env));
+    for (const file of await toRuleFiles(candidate, null, env)) add(file);
   }
   for (const root of repoRoots) {
     const repoRoot = await checkoutRoot(root);
     for (const candidate of await withImports(repoCandidates(repoRoot, await listFiles(repoRoot)), env.home)) {
-      add(await toRuleFile(candidate, repoRoot, env));
+      for (const file of await toRuleFiles(candidate, repoRoot, env)) add(file);
     }
   }
   return files;

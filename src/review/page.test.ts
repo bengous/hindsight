@@ -78,6 +78,19 @@ describe("renderPage", () => {
     expect(page({ cards: [], pendingTotal: 0 })).toContain("Aucune proposition en attente.");
   });
 
+  test("shows memory-note evidence as notes, not as zero sessions", () => {
+    const base = mockProposals[0];
+    if (base === undefined) throw new Error("fixture mockProposals is empty");
+    const seeded: Proposal = {
+      ...base,
+      prevalence: { ...base.prevalence, sessions: 0, days: 0, repos: 0 },
+      evidence: [{ evidenceId: "mem:/notes/a.md", sessionTitle: "a", timestamp: base.prevalence.lastAt, quote: "q" }],
+    };
+    const html = page({ cards: [{ proposal: seeded, contest: false }] });
+    expect(html).toContain("1 note mémoire");
+    expect(html).not.toContain("0 session");
+  });
+
   test("shows a finding without session evidence as deterministic, without a strip", () => {
     const base = mockProposals[0];
     if (base === undefined) throw new Error("fixture mockProposals is empty");

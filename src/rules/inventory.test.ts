@@ -15,6 +15,7 @@ const project = tempRepo({
   ".claude/rules/deep/inner.md": "- Recursive rule.\n",
   "pkg/CLAUDE.md": "- Package rule.\n",
   "pkg/.claude/rules/local.md": "- Package local rule.\n",
+  ".claude/output-styles/terse.md": "---\nname: terse\n---\n- Answer in one line.\n",
   ".gitignore": "CLAUDE.local.md\nnode_modules/\n",
   "node_modules/dep/CLAUDE.md": "- Vendored, ignored.\n",
 });
@@ -23,6 +24,8 @@ project.write("CLAUDE.local.md", "- Personal, ignored.\n");
 const dotfiles = tempRepo({
   "dot_agents/AGENTS.md": "- Global rule one.\n- Global rule two.\n",
   "dot_claude/CLAUDE.md": "@AGENTS.md\n",
+  "dot_claude/output-styles/plain.md.tmpl": '---\nname: plain\n---\n- Style rule.\n{{ template "core.md" . }}\n',
+  ".chezmoitemplates/core.md": "- Answer in plain words.\n",
 });
 
 const home = tempDir("home");
@@ -30,14 +33,21 @@ writeTree(home, {
   ".claude/CLAUDE.md": "@AGENTS.md\n",
   ".claude/AGENTS.md": "- Global rule one.\n- Global rule two.\n",
   ".claude/rules/global.md": "- A global rule file.\n",
+  ".claude/output-styles/plain.md": "---\nname: plain\n---\n- Answer in plain words.\n",
 });
 
 const env: InventoryEnv = {
   home,
   resolveSource: async (loadedPath) => {
-    if (loadedPath === join(home, ".claude/AGENTS.md")) return join(dotfiles.root, "dot_agents/AGENTS.md");
-    if (loadedPath === join(home, ".claude/CLAUDE.md")) return join(dotfiles.root, "dot_claude/CLAUDE.md");
-    return loadedPath;
+    if (loadedPath === join(home, ".claude/AGENTS.md")) return [join(dotfiles.root, "dot_agents/AGENTS.md")];
+    if (loadedPath === join(home, ".claude/CLAUDE.md")) return [join(dotfiles.root, "dot_claude/CLAUDE.md")];
+    if (loadedPath === join(home, ".claude/output-styles/plain.md")) {
+      return [
+        join(dotfiles.root, "dot_claude/output-styles/plain.md.tmpl"),
+        join(dotfiles.root, ".chezmoitemplates/core.md"),
+      ];
+    }
+    return [loadedPath];
   },
 };
 
@@ -64,7 +74,10 @@ describe("inventory", () => {
     expect(loaded).toEqual([
       "H/.claude/AGENTS.md",
       "H/.claude/CLAUDE.md",
+      "H/.claude/output-styles/plain.md",
+      "H/.claude/output-styles/plain.md",
       "H/.claude/rules/global.md",
+      "P/.claude/output-styles/terse.md",
       "P/.claude/rules/always.md",
       "P/.claude/rules/deep/inner.md",
       "P/.claude/rules/tests.md",
@@ -83,6 +96,18 @@ describe("inventory", () => {
     expect(agents.scope).toBe("global");
     expect(files.filter((file) => file.sourcePath === agents.sourcePath)).toHaveLength(1);
     expect(byLoaded(files, join(home, ".claude/rules/global.md")).repoRoot).toBeNull();
+  });
+
+  test("lists output styles as always-loaded rule files of their scope", () => {
+    expect(byLoaded(files, join(project.root, ".claude/output-styles/terse.md"))).toMatchObject({
+      scope: "repo",
+      paths: null,
+    });
+    const brief = files.filter((file) => file.loadedPath === join(home, ".claude/output-styles/plain.md"));
+    expect(brief.map((file) => [file.sourcePath, file.scope, file.paths, file.bullets.map((b) => b.text)])).toEqual([
+      [join(dotfiles.root, "dot_claude/output-styles/plain.md.tmpl"), "global", null, ["- Style rule."]],
+      [join(dotfiles.root, ".chezmoitemplates/core.md"), "global", null, ["- Answer in plain words."]],
+    ]);
   });
 
   test("records scope and loading condition", () => {
