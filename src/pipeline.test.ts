@@ -197,6 +197,14 @@ describe("run", () => {
     );
   });
 
+  test("a correction the human typed twice cites the earliest message and is counted, not dropped", async () => {
+    const report = await run({ stateRoot, projectsDir }, deps([], script(), 0.01, withMessage("a1", "a1-9")));
+    expect(report.quotesRepeated).toBe(1);
+    expect(report.dropped).toMatchObject({ "quote-duplicate": 1 });
+    const [pending] = await pendingProposals(stateRoot);
+    expect(pending?.proposal.evidence.map((entry) => entry.evidenceId)).toContain("a1:a1-3");
+  });
+
   test("a re-run reuses the caches and proposes nothing new", async () => {
     const first: ScriptedCall[] = [];
     await run({ stateRoot, projectsDir }, deps(first));

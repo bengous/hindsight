@@ -158,7 +158,9 @@ function printRun(report: RunReport): void {
   console.log(
     `sessions : ${s.collected} lues, ${s.withHumanText} avec texte humain, ${s.extracted} extraites, ${s.cached} en cache, ${s.failed} en échec, ${s.notRun} non traitées`,
   );
-  console.log(`${report.items} éléments · ${report.groups} groupes · ${report.proposals} propositions`);
+  console.log(
+    `${report.items} éléments (${report.quotesRepeated} citations répétées) · ${report.groups} groupes · ${report.proposals} propositions`,
+  );
   const dropped = Object.entries(report.dropped).toSorted((a, b) => b[1] - a[1]);
   if (dropped.length > 0) {
     console.log(`écartés : ${dropped.map(([reason, count]) => `${reason} ${count}`).join(", ")}`);

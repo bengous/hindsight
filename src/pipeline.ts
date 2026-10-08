@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { curatorOutput, curatorPrompt, DEFAULT_THRESHOLDS, gateCuration } from "./curate/curator.ts";
 import {
   DEFAULT_EXTRACTION_LIMITS,
+  EXTRACTION_DROPS,
   evidenceText,
   EXTRACTION_PROMPT_VERSION,
   extractSession,
@@ -171,6 +172,8 @@ export type RunReport = {
     readonly notRun: number;
   };
   readonly items: number;
+  /** Items whose quote the human typed in several messages; each cites the earliest one. */
+  readonly quotesRepeated: number;
   readonly groups: number;
   readonly proposals: number;
   readonly dropped: Readonly<Record<string, number>>;
@@ -431,6 +434,7 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
     let extracted = 0;
     let grown = 0;
     let retried = 0;
+    let quotesRepeated = 0;
     let failed = 0;
     await forEachPool(selected, options.concurrency ?? DEFAULT_CONCURRENCY, async ({ digest, entry }) => {
       const retryModel = NEXT_TIER[extractModel.model];
@@ -447,11 +451,12 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
       extracted += 1;
       grown += entry === null ? 0 : 1;
       retried += outcome.retried;
-      for (const [reason, count] of Object.entries(outcome.drops)) {
-        for (let index = 0; index < count; index += 1) {
+      for (const reason of EXTRACTION_DROPS) {
+        for (let index = 0; index < outcome.counts[reason]; index += 1) {
           quoteDrops.push({ reason, detail: digest.sessionId });
         }
       }
+      quotesRepeated += outcome.counts["quote-repeated"];
       items.push(...outcome.items);
       const freshIds = new Set<string>(digest.messages.map((message) => message.evidenceId));
       await writeExtraction(stateRoot, {
@@ -567,6 +572,7 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
       failed,
       notRun: pending.length - selected.length,
       items: items.length,
+      quotesRepeated,
       groups: plan.groups.length,
       proposals: ordered.length,
       dropped: dropped.length,
@@ -587,6 +593,7 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
         notRun: pending.length - selected.length,
       },
       items: items.length,
+      quotesRepeated,
       groups: plan.groups.length,
       proposals: ordered.length,
       dropped: countBy(dropped),

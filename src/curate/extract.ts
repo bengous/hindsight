@@ -175,50 +175,52 @@ export function extractionPrompt(batch: ExtractionBatch): string {
   return `${EXTRACTION_INSTRUCTIONS}\n\nDATA\n${JSON.stringify({ ...header, messages }, null, 1)}\n`;
 }
 
-export type ExtractionDrop = "quote-not-found" | "quote-ambiguous" | "quote-duplicate";
+/** Two drops, quote-not-found and quote-duplicate, and one note: quote-repeated keeps the item. */
+export type ExtractionCount = "quote-not-found" | "quote-duplicate" | "quote-repeated";
 
-export type ExtractionDrops = Readonly<Record<ExtractionDrop, number>>;
+export type ExtractionCounts = Readonly<Record<ExtractionCount, number>>;
 
-export const NO_DROPS: ExtractionDrops = { "quote-not-found": 0, "quote-ambiguous": 0, "quote-duplicate": 0 };
+export const NO_COUNTS: ExtractionCounts = { "quote-not-found": 0, "quote-duplicate": 0, "quote-repeated": 0 };
 
-export function addDrops(a: ExtractionDrops, b: ExtractionDrops): ExtractionDrops {
+export const EXTRACTION_DROPS: readonly ExtractionCount[] = ["quote-not-found", "quote-duplicate"];
+
+export function addCounts(a: ExtractionCounts, b: ExtractionCounts): ExtractionCounts {
   return {
     "quote-not-found": a["quote-not-found"] + b["quote-not-found"],
-    "quote-ambiguous": a["quote-ambiguous"] + b["quote-ambiguous"],
     "quote-duplicate": a["quote-duplicate"] + b["quote-duplicate"],
+    "quote-repeated": a["quote-repeated"] + b["quote-repeated"],
   };
 }
 
 export type GatedExtraction = {
   readonly items: readonly SteeringItem[];
-  readonly drops: ExtractionDrops;
+  readonly counts: ExtractionCounts;
 };
 
 /**
- * Cites the one human message that holds each quote; a quote found in no message or in several is dropped, and so is
- * a second item with the same message and quote.
+ * Cites the human message that holds each quote. A quote the human typed several times cites its earliest message,
+ * since repetition is a strong signal; a quote found in no message is dropped, and so is a second item with the same
+ * message and quote.
  */
 export function gateExtraction(batch: ExtractionBatch, output: Infer<typeof extractionOutput>): GatedExtraction {
   const items: SteeringItem[] = [];
-  const drops: Record<ExtractionDrop, number> = { ...NO_DROPS };
+  const counts: Record<ExtractionCount, number> = { ...NO_COUNTS };
   const seen = new Set<string>();
   for (const item of output.items) {
-    const holders = batch.messages.filter((message) => containsVerbatim(message.human, item.quote));
-    const [message, ...others] = holders;
+    const [message, ...others] = batch.messages.filter((candidate) => containsVerbatim(candidate.human, item.quote));
     if (message === undefined) {
-      drops["quote-not-found"] += 1;
-      continue;
-    }
-    if (others.length > 0) {
-      drops["quote-ambiguous"] += 1;
+      counts["quote-not-found"] += 1;
       continue;
     }
     const key = `${message.id}\n${collapseWhitespace(item.quote)}`;
     if (seen.has(key)) {
-      drops["quote-duplicate"] += 1;
+      counts["quote-duplicate"] += 1;
       continue;
     }
     seen.add(key);
+    if (others.length > 0) {
+      counts["quote-repeated"] += 1;
+    }
     items.push({
       evidenceId: message.id,
       quote: item.quote,
@@ -228,7 +230,7 @@ export function gateExtraction(batch: ExtractionBatch, output: Infer<typeof extr
       pathHint: item.scopeHint === "path" ? item.pathHint : null,
     });
   }
-  return { items, drops };
+  return { items, counts };
 }
 
 export type ExtractionSettings = {
@@ -245,7 +247,7 @@ export type ExtractionOutcome =
   | {
       readonly status: "ok";
       readonly items: readonly SteeringItem[];
-      readonly drops: ExtractionDrops;
+      readonly counts: ExtractionCounts;
       readonly retried: number;
     }
   | { readonly status: "failed"; readonly error: Error };
@@ -262,7 +264,7 @@ export async function extractSession(
   settings: ExtractionSettings,
 ): Promise<ExtractionOutcome> {
   const items: SteeringItem[] = [];
-  let drops = NO_DROPS;
+  let counts = NO_COUNTS;
   let retried = 0;
   for (const batch of extractionBatches(digest, settings.limits)) {
     const call = (model: ModelAlias) =>
@@ -288,10 +290,10 @@ export async function extractSession(
       }
       const gated = gateExtraction(batch, result.output);
       items.push(...gated.items);
-      drops = addDrops(drops, gated.drops);
+      counts = addCounts(counts, gated.counts);
     } catch (error) {
       return { status: "failed", error: error instanceof Error ? error : new Error(String(error)) };
     }
   }
-  return { status: "ok", items, drops, retried };
+  return { status: "ok", items, counts, retried };
 }
