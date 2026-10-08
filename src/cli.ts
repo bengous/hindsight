@@ -22,7 +22,7 @@ Options communes (scan, run) :
 
 Options de run :
   --budget USD        plafond du run (10)
-  --max-sessions N    nombre maximal de sessions à extraire hors cache
+  --max-sessions N    nombre maximal de sessions à extraire hors cache (0 : curer depuis le cache seul)
   --extract-model M   haiku | sonnet | opus (haiku)
   --curate-model M    haiku | sonnet | opus (opus)
   --concurrency N     appels d'extraction en parallèle (4)
@@ -38,6 +38,14 @@ function positiveNumber(flag: string, raw: string | undefined): number | undefin
   if (raw === undefined) return undefined;
   const value = Number(raw);
   if (!Number.isFinite(value) || value <= 0) throw new UsageError(`${flag} attend un nombre positif, reçu "${raw}"`);
+  return value;
+}
+
+function count(flag: string, raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0)
+    throw new UsageError(`${flag} attend un entier positif ou nul, reçu "${raw}"`);
   return value;
 }
 
@@ -82,7 +90,7 @@ function scanOptions(flags: Flags): ScanOptions {
 
 function runOptions(flags: Flags): RunOptions {
   const budgetUsd = positiveNumber("--budget", flags.budget);
-  const maxSessions = positiveNumber("--max-sessions", flags["max-sessions"]);
+  const maxSessions = count("--max-sessions", flags["max-sessions"]);
   const concurrency = positiveNumber("--concurrency", flags.concurrency);
   const extractModel = modelOf("--extract-model", flags["extract-model"]);
   const curateModel = modelOf("--curate-model", flags["curate-model"]);
