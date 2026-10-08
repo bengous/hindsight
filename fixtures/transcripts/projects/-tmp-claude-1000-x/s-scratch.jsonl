@@ -1,0 +1,1 @@
+{"type":"user","uuid":"c01","timestamp":"2026-03-01T12:00:00.000Z","sessionId":"s-scratch","cwd":"/tmp/claude-1000/x","entrypoint":"cli","version":"2.1.290","origin":{"kind":"human"},"promptSource":"typed","message":{"role":"user","content":"je t'ai dit de tester"}}
