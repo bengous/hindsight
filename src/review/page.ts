@@ -2,6 +2,7 @@ import type { DeltaOp, EvidenceItem, FindingKind, Prevalence, Proposal } from ".
 import type { Card } from "./round.ts";
 import { basename, relative } from "node:path";
 import { reviewClient, type ClientConfig } from "./client.ts";
+import { quoteContext } from "./context.ts";
 import { isMemoryNote } from "./decide.ts";
 import { lineDiff } from "./diff.ts";
 
@@ -13,6 +14,8 @@ export type PageInput = {
   readonly timeZone: string;
   /** Rule bullet text by bullet id, for findings that cite a rule without changing it. */
   readonly bulletText: ReadonlyMap<string, string>;
+  /** Text of the human message behind each evidence id, as the run stored it; tool-output evidence has none. */
+  readonly evidenceText: ReadonlyMap<string, string>;
   /** CSP nonce of the inline script. */
   readonly nonce: string;
   readonly client: ClientConfig;
@@ -143,7 +146,20 @@ function renderBody(proposal: Proposal, bulletText: ReadonlyMap<string, string>)
   return `${renderCitedRules(proposal, bulletText)}<div class="suggest"><span class="lbl">Suggestion · rien n'est écrit dans les règles</span>${escapeHtml(suggestion)}</div>`;
 }
 
-function renderEvidence(evidence: readonly EvidenceItem[], timeZone: string): string {
+function renderMessage(item: EvidenceItem, message: string | undefined): string {
+  if (message === undefined) return escapeHtml(item.quote);
+  const context = quoteContext(message, item.quote);
+  const body = context.found
+    ? `${context.clippedStart ? "… " : ""}${escapeHtml(context.before)}<mark>${escapeHtml(context.quote)}</mark>${escapeHtml(context.after)}${context.clippedEnd ? " …" : ""}`
+    : `<span class="miss">Citation introuvable telle quelle dans le message.</span>${escapeHtml(context.text)}${context.clippedEnd ? " …" : ""}`;
+  return `<details class="msg"><summary>${escapeHtml(item.quote)}</summary><div class="ctx">${body}</div></details>`;
+}
+
+function renderEvidence(
+  evidence: readonly EvidenceItem[],
+  timeZone: string,
+  evidenceText: ReadonlyMap<string, string>,
+): string {
   if (evidence.length === 0)
     return `<div class="ev none">Aucune preuve de session : constat déterministe sur le dépôt.</div>`;
   const first = evidence[0]?.quote ?? "";
@@ -151,7 +167,7 @@ function renderEvidence(evidence: readonly EvidenceItem[], timeZone: string): st
     (item) => `<tr title="${escapeHtml(item.evidenceId)}">
       <td class="ses">${escapeHtml(item.sessionTitle ?? "session sans titre")}</td>
       <td class="dt">${escapeHtml(shortDate(item.timestamp, timeZone))}</td>
-      <td class="q">${escapeHtml(item.quote)}</td>
+      <td class="q">${renderMessage(item, evidenceText.get(item.evidenceId))}</td>
     </tr>`,
   );
   return `<details class="ev">
@@ -186,7 +202,7 @@ function renderCard(card: Card, rank: number, input: PageInput): string {
   <div class="target"><span class="repo">${escapeHtml(repo)}</span><span class="path">${escapeHtml(file)}</span><span class="op">${op}</span></div>
   <div class="body">${renderBody(proposal, input.bulletText)}</div>
   <p class="why" data-why title="Cliquer pour tout lire"><span class="lbl">Pourquoi</span> ${escapeHtml(proposal.why)}</p>
-  ${renderEvidence(proposal.evidence, input.timeZone)}
+  ${renderEvidence(proposal.evidence, input.timeZone, input.evidenceText)}
   <footer class="decide">
     <div class="panel" data-panel="actions">
       <button class="btn ok" data-action="accept">Accepter</button>
@@ -271,18 +287,25 @@ main { max-width: 980px; margin: 0 auto; padding: 20px 16px 48px; }
 .why { margin: 8px 0 4px; color: var(--muted); font-size: 13px; cursor: pointer; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
 .why.open { display: block; }
 .ev { font-size: 13px; }
-.ev summary { cursor: pointer; display: flex; gap: 4px; align-items: baseline; list-style: none; }
-.ev summary .lbl { white-space: nowrap; }
-.ev summary::-webkit-details-marker { display: none; }
-.ev summary::before { content: "▸"; color: var(--muted); width: 12px; }
-.ev[open] summary::before { content: "▾"; }
+.ev > summary { cursor: pointer; display: flex; gap: 4px; align-items: baseline; list-style: none; }
+.ev > summary .lbl { white-space: nowrap; }
+.ev > summary::-webkit-details-marker { display: none; }
+.ev > summary::before { content: "▸"; color: var(--muted); width: 12px; }
+.ev[open] > summary::before { content: "▾"; }
 .ev .teaser { color: var(--muted); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.ev[open] .teaser { display: none; }
+.ev[open] > summary .teaser { display: none; }
 .ev.none { color: var(--muted); font-style: italic; }
 .ev table { width: 100%; border-collapse: collapse; margin-top: 6px; }
 .ev td { border-top: 1px solid var(--line); padding: 5px 6px; vertical-align: top; }
 .ev .ses { width: 30%; font-weight: 600; } .ev .dt { width: 64px; color: var(--muted); white-space: nowrap; }
 .ev .q { white-space: pre-wrap; word-break: break-word; }
+.msg summary { cursor: pointer; list-style: none; }
+.msg summary::-webkit-details-marker { display: none; }
+.msg summary::after { content: " ▸ message"; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.msg[open] summary::after { content: " ▾"; }
+.msg .ctx { margin-top: 6px; padding: 7px 10px; border-left: 3px solid var(--k); background: var(--soft); border-radius: 0 6px 6px 0; color: var(--muted); }
+.msg mark { background: color-mix(in srgb, var(--k) 25%, transparent); color: var(--ink); border-radius: 3px; padding: 0 2px; }
+.msg .miss { display: block; color: var(--no); font-style: italic; margin-bottom: 4px; }
 .decide { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
 .panel { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .panel[hidden] { display: none; }

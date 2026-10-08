@@ -1,4 +1,4 @@
-import { mockBulletText, mockNow, mockProposals } from "../../fixtures/review/proposals.ts";
+import { mockBulletText, mockEvidenceText, mockNow, mockProposals } from "../../fixtures/review/proposals.ts";
 import { renderPage } from "./page.ts";
 import { selectRound } from "./round.ts";
 
@@ -14,6 +14,7 @@ const html = renderPage({
   now: mockNow,
   timeZone: "Europe/Paris",
   bulletText: mockBulletText,
+  evidenceText: mockEvidenceText,
   nonce: crypto.randomUUID().replaceAll("-", ""),
   client: { mode: "mock" },
 });

@@ -49,6 +49,11 @@ export class EvidenceError extends Error {
   }
 }
 
+/** The human text as the extraction saw it: redacted and cut. Evidence quotes are always inside it. */
+export function evidenceText(message: HumanMessage, limits: ExtractionLimits = DEFAULT_EXTRACTION_LIMITS): string {
+  return redactSecrets(message.text.slice(0, limits.humanChars));
+}
+
 function toExtractionMessage(
   message: HumanMessage,
   digest: SessionDigest,
@@ -60,7 +65,7 @@ function toExtractionMessage(
     markers: message.markers,
     loadedRules: message.loadedRulePaths.map((path) => displayPath(path, digest.repoRoot)),
     assistantBefore: redactSecrets(message.precedingAssistant.slice(-limits.assistantChars)),
-    human: redactSecrets(message.text.slice(0, limits.humanChars)),
+    human: evidenceText(message, limits),
   };
 }
 

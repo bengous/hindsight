@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { applyDelta } from "../rules/apply.ts";
 import { gitToplevel } from "../rules/git.ts";
 import { inventory } from "../rules/inventory.ts";
-import { appendDecision, defaultStateRoot, pendingProposals } from "../state/index.ts";
+import { appendDecision, defaultStateRoot, pendingProposals, readEvidenceTexts } from "../state/index.ts";
 import { decide, type DecisionDeps } from "./decide.ts";
 import { serveReview, type ReviewServer } from "./server.ts";
 
@@ -16,6 +16,17 @@ async function checkouts(pending: readonly PendingProposal[]): Promise<readonly 
 async function bulletText(pending: readonly PendingProposal[]): Promise<ReadonlyMap<string, string>> {
   const files = await inventory(await checkouts(pending));
   return new Map(files.flatMap((file) => file.bullets.map((bullet) => [bullet.id, bullet.text] as const)));
+}
+
+/** Stored message texts of the runs that hold the pending cards, read from the state directory. */
+export function evidenceTexts(
+  stateRoot: string,
+): (pending: readonly PendingProposal[]) => Promise<ReadonlyMap<string, string>> {
+  return async (pending) => {
+    const runIds = [...new Set(pending.map((entry) => entry.runId))];
+    const perRun = await Promise.all(runIds.map((runId) => readEvidenceTexts(stateRoot, runId)));
+    return new Map(perRun.flatMap((texts) => [...texts]));
+  };
 }
 
 function deployedPaths(): DecisionDeps["deployedPath"] {
@@ -42,6 +53,7 @@ export function startReview(stateRoot: string = defaultStateRoot()): ReviewServe
   return serveReview({
     pending: () => pendingProposals(stateRoot),
     bulletText,
+    evidenceText: evidenceTexts(stateRoot),
     decide: (pending, request) => decide(pending, request, deps),
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     now: () => new Date(),

@@ -7,6 +7,7 @@ import type { CollectOptions, CollectResult, Volumes } from "./transcripts/index
 import type {
   ErrorCluster,
   ErrorEvent,
+  HumanMessage,
   ModelUsage,
   Proposal,
   RuleFile,
@@ -19,7 +20,12 @@ import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { curatorOutput, curatorPrompt, DEFAULT_THRESHOLDS, gateCuration } from "./curate/curator.ts";
-import { DEFAULT_EXTRACTION_LIMITS, EXTRACTION_PROMPT_VERSION, extractSession } from "./curate/extract.ts";
+import {
+  DEFAULT_EXTRACTION_LIMITS,
+  evidenceText,
+  EXTRACTION_PROMPT_VERSION,
+  extractSession,
+} from "./curate/extract.ts";
 import { planGroups } from "./curate/groups.ts";
 import { sha1 } from "./curate/ids.ts";
 import { seedDigest } from "./curate/seeds.ts";
@@ -349,6 +355,21 @@ function curationHash(group: CuratorGroup, stage: StageModel): string {
   return sha1(`${stage.model}\n${stage.effort}\n${curatorPrompt({ ...group, history: [], ruleDiff: "" })}`);
 }
 
+/** One line per human message the proposals cite; tool-output evidence has no message and keeps its card excerpt. */
+function evidenceLines(
+  proposals: readonly Proposal[],
+  digests: readonly SessionDigest[],
+): readonly { readonly evidenceId: string; readonly text: string }[] {
+  const messages = new Map<string, HumanMessage>(
+    digests.flatMap((digest) => digest.messages.map((message) => [message.evidenceId, message] as const)),
+  );
+  const cited = new Set(proposals.flatMap((proposal) => proposal.evidence.map((evidence) => evidence.evidenceId)));
+  return [...cited].flatMap((evidenceId) => {
+    const message = messages.get(evidenceId);
+    return message === undefined ? [] : [{ evidenceId, text: evidenceText(message) }];
+  });
+}
+
 const CONFIDENCE_ORDER: Readonly<Record<Proposal["confidence"], number>> = { high: 0, medium: 1, low: 2 };
 
 function countBy(dropped: readonly Dropped[]): Readonly<Record<string, number>> {
@@ -519,6 +540,7 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
       })),
     );
     await writeRunLines(stateRoot, runId, "items.jsonl", items);
+    await writeRunLines(stateRoot, runId, "evidence.jsonl", evidenceLines(ordered, digests));
     await writeRunJson(stateRoot, runId, "proposals.json", ordered);
     await writeRunJson(stateRoot, runId, "dropped.json", dropped);
     await writeRunJson(stateRoot, runId, "cost.json", {

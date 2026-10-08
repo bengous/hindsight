@@ -4,6 +4,7 @@ import type {
   EvidenceItem,
   FindingKind,
   IsoTimestamp,
+  Marker,
   Proposal,
   RuleBullet,
   RuleFile,
@@ -337,11 +338,12 @@ function crossCheck(
   }
   if (base.loadedSessions > 0) {
     const reclassified = candidate.kind === "misplaced";
-    const suggestion = base.suggestion ?? (base.loadedSessions >= 2 ? HOOK_SUGGESTION : null);
+    const op = reclassified ? null : base.op;
+    const suggestion = base.suggestion ?? (base.loadedSessions >= 2 && op === null ? HOOK_SUGGESTION : null);
     return {
       ...base,
       kind: "ignored",
-      op: reclassified ? null : base.op,
+      op,
       suggestion,
       confidence: reclassified ? "low" : base.confidence,
     };
@@ -377,26 +379,42 @@ function crossCheck(
   };
 }
 
-function passesThreshold(
+const STEERING_MARKERS: ReadonlySet<Marker> = new Set([
+  "standing_instruction",
+  "correction_strong",
+  "correction_medium",
+]);
+
+type ThresholdVerdict = "pass" | "below-threshold" | "single-session-unmarked";
+
+/**
+ * Inferred lessons need several sessions on several days. An explicit instruction or a conflict with a loaded rule may
+ * rest on one source, but a single session then needs the human's own wording to look like an instruction or a
+ * correction: on the first real run, single-session cards without one were mostly noise.
+ */
+function thresholdVerdict(
   judged: Judged,
   members: readonly ItemRef[],
   counted: ReturnType<typeof countOccurrences>,
   thresholds: Thresholds,
-): boolean {
+): ThresholdVerdict {
   if (judged.kind === "stale") {
-    return true;
+    return "pass";
   }
   const strong = counted.prevalence.sessions >= thresholds.minSessions && counted.prevalence.days >= thresholds.minDays;
   if (judged.kind === "tool-config") {
-    return strong;
+    return strong ? "pass" : "below-threshold";
   }
-  if (members.some((ref) => ref.item.kind === "explicit")) {
-    return counted.sources >= 1;
+  const loadedConflict = judged.kind === "conflict" && judged.loadedSessions >= 1;
+  const explicit = members.some((ref) => ref.item.kind === "explicit");
+  if (!strong && !loadedConflict && !explicit) {
+    return "below-threshold";
   }
-  if (judged.kind === "conflict" && judged.loadedSessions >= 1) {
-    return counted.sources >= 1;
+  if (counted.sources > 1 || strong || loadedConflict) {
+    return "pass";
   }
-  return strong;
+  const marked = members.some((ref) => ref.markers.some((marker) => STEERING_MARKERS.has(marker)));
+  return marked ? "pass" : "single-session-unmarked";
 }
 
 function primaryRule(group: CuratorGroup): RuleFile | null {
@@ -458,13 +476,41 @@ function structuralDrop(candidate: Candidate, members: readonly ItemRef[]): Drop
   return members.length === 0 ? { reason: "no-evidence", detail: candidate.lesson } : null;
 }
 
+const CONFIDENCE_RANK: Readonly<Record<Proposal["confidence"], number>> = { high: 0, medium: 1, low: 2 };
+
+type Accepted = { readonly proposal: Proposal; readonly members: ReadonlySet<string>; readonly index: number };
+
+function sharesEvidence(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  const smaller = Math.min(a.size, b.size);
+  return smaller > 0 && [...a].filter((id) => b.has(id)).length * 2 >= smaller;
+}
+
+/** Two cards resting mostly on the same messages tell one story; the more confident, then more prevalent, stays. */
+function withoutDuplicateEvidence(accepted: readonly Accepted[], dropped: Dropped[]): readonly Proposal[] {
+  const ranked = accepted.toSorted(
+    (a, b) =>
+      CONFIDENCE_RANK[a.proposal.confidence] - CONFIDENCE_RANK[b.proposal.confidence] ||
+      b.proposal.prevalence.sessions - a.proposal.prevalence.sessions ||
+      a.index - b.index,
+  );
+  const kept: Accepted[] = [];
+  for (const entry of ranked) {
+    if (kept.some((other) => sharesEvidence(entry.members, other.members))) {
+      dropped.push({ reason: "duplicate-evidence", detail: entry.proposal.lesson });
+    } else {
+      kept.push(entry);
+    }
+  }
+  return kept.toSorted((a, b) => a.index - b.index).map((entry) => entry.proposal);
+}
+
 /** Turns the curator's candidates into proposals; every rule here is code, the model only proposed. */
 export function gateCuration(group: CuratorGroup, output: CuratorOutput, context: GateContext): GateResult {
   const label = `curate ${group.key}`;
   const lookup = lookupOf(group);
   assertKnownIds(label, output.candidates, lookup);
 
-  const proposals: Proposal[] = [];
+  const accepted: Accepted[] = [];
   const dropped: Dropped[] = [];
   const seen = new Set<string>();
   for (const candidate of output.candidates) {
@@ -492,9 +538,10 @@ export function gateCuration(group: CuratorGroup, output: CuratorOutput, context
     }
     const cluster = candidate.errorSignature === null ? null : (lookup.clusters.get(candidate.errorSignature) ?? null);
     const counted = countOccurrences(occurrencesOf(members, cluster), context.now);
-    if (!passesThreshold(judged, members, counted, context.thresholds)) {
+    const verdict = thresholdVerdict(judged, members, counted, context.thresholds);
+    if (verdict !== "pass") {
       dropped.push({
-        reason: "below-threshold",
+        reason: verdict,
         detail: `${candidate.lesson} (${counted.prevalence.sessions} sessions, ${counted.prevalence.days} days)`,
       });
       continue;
@@ -537,7 +584,7 @@ export function gateCuration(group: CuratorGroup, output: CuratorOutput, context
     seen.add(fingerprint);
     const staleBullet =
       candidate.staleFindingId === null ? null : (lookup.stale.get(candidate.staleFindingId)?.bulletId ?? null);
-    proposals.push({
+    const proposal: Proposal = {
       id: `p-${fingerprint.slice(0, 10)}`,
       fingerprint,
       kind: judged.kind,
@@ -552,7 +599,8 @@ export function gateCuration(group: CuratorGroup, output: CuratorOutput, context
       prevalence: counted.prevalence,
       evidence: evidenceOf(members, cluster),
       confidence: judged.confidence,
-    });
+    };
+    accepted.push({ proposal, members: new Set(members.map((ref) => ref.item.evidenceId)), index: accepted.length });
   }
-  return { proposals, dropped };
+  return { proposals: withoutDuplicateEvidence(accepted, dropped), dropped };
 }

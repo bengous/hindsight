@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promptData, scriptedRunner } from "../fixtures/curate/world.ts";
 import { run, scan } from "./pipeline.ts";
-import { appendDecision, pendingProposals } from "./state/index.ts";
+import { appendDecision, pendingProposals, readEvidenceTexts } from "./state/index.ts";
 import { collect } from "./transcripts/index.ts";
 
 const projectsDir = join(import.meta.dir, "../fixtures/curate/projects");
@@ -169,6 +169,9 @@ describe("run", () => {
     expect(pending).toHaveLength(1);
     expect(pending[0]?.proposal.prevalence).toMatchObject({ sessions: 3, days: 3 });
     expect(pending[0]?.proposal.evidence.some((entry) => entry.quote.includes("reset --hard"))).toBe(false);
+    const texts = await readEvidenceTexts(stateRoot, report.runId);
+    expect([...texts.keys()].toSorted()).toEqual(["a1:a1-3", "a2:a2-3", "a3:a3-3"]);
+    expect(texts.get("a1:a1-3")).toBe("non, utilise makeOrder() pour construire les commandes dans les tests");
   });
 
   test("a quote copied from a tool result matches no human message and is dropped", async () => {
@@ -316,6 +319,7 @@ describe("run", () => {
       "cost.json",
       "digests.jsonl",
       "dropped.json",
+      "evidence.jsonl",
       "items.jsonl",
       "proposals.json",
       "run.json",

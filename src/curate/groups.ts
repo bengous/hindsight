@@ -4,6 +4,7 @@ import type {
   EvidenceId,
   HumanMessage,
   IsoTimestamp,
+  Marker,
   Proposal,
   RuleFile,
   SessionDigest,
@@ -24,6 +25,7 @@ export type ItemRef = {
   readonly sessionTitle: string | null;
   readonly repoRoot: string | null;
   readonly timestamp: IsoTimestamp;
+  readonly markers: readonly Marker[];
   /** Absolute loaded paths of the rules in context when the message was sent. */
   readonly loadedRulePaths: readonly string[];
   readonly filesTouched: readonly string[];
@@ -114,6 +116,7 @@ function itemRef(item: SteeringItem, located: Located, rules: readonly RuleSourc
     sessionTitle: digest.title,
     repoRoot: digest.repoRoot,
     timestamp: message.timestamp,
+    markers: message.markers,
     loadedRulePaths: message.loadedRulePaths,
     filesTouched: digest.filesTouched,
     changedRulePaths: changedRulePaths(digest, rules),

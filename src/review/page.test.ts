@@ -11,6 +11,7 @@ function page(overrides: Partial<PageInput> = {}): string {
     now: mockNow,
     timeZone: "UTC",
     bulletText: mockBulletText,
+    evidenceText: new Map(),
     nonce: "n0nce",
     client: { mode: "mock" },
     ...overrides,
@@ -98,5 +99,38 @@ describe("renderPage", () => {
     const html = page({ cards: [{ proposal: stale, contest: false }] });
     expect(html).toContain("constat déterministe");
     expect(html).not.toContain('class="strip"');
+  });
+
+  test("expands an evidence quote into its redacted message, with the quote highlighted", () => {
+    const base = mockProposals[0];
+    const item = base?.evidence[0];
+    if (base === undefined || item === undefined) throw new Error("fixture evidence missing");
+    const message = `Contexte <b>avant</b> token=s3cr3tvalue ; ${item.quote} ; et la suite.`;
+    const html = page({
+      cards: [{ proposal: base, contest: false }],
+      evidenceText: new Map([[item.evidenceId, message]]),
+    });
+    expect(html).toContain(`<details class="msg">`);
+    expect(html).toContain(`<mark>${item.quote}</mark>`);
+    expect(html).toContain("Contexte &lt;b&gt;avant&lt;/b&gt; token=[REDACTED]");
+    expect(html).not.toContain("s3cr3tvalue");
+  });
+
+  test("flags a quote that its message does not contain", () => {
+    const base = mockProposals[0];
+    const item = base?.evidence[0];
+    if (base === undefined || item === undefined) throw new Error("fixture evidence missing");
+    const html = page({
+      cards: [{ proposal: base, contest: false }],
+      evidenceText: new Map([[item.evidenceId, "Un message sans la citation."]]),
+    });
+    expect(html).toContain("Citation introuvable telle quelle dans le message.");
+  });
+
+  test("keeps a plain quote when no message text is stored for it", () => {
+    const base = mockProposals[0];
+    if (base === undefined) throw new Error("fixture mockProposals is empty");
+    const html = page({ cards: [{ proposal: base, contest: false }] });
+    expect(html).not.toContain(`<details class="msg">`);
   });
 });

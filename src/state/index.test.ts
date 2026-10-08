@@ -11,12 +11,14 @@ import {
   proposalHistory,
   readCuration,
   readDecisions,
+  readEvidenceTexts,
   readExtraction,
   readHeads,
   writeCuration,
   writeExtraction,
   writeHeads,
   writeRunJson,
+  writeRunLines,
 } from "./index.ts";
 
 let root: string;
@@ -140,6 +142,26 @@ describe("state", () => {
     await writeCuration(root, { groupKey: "/repo", inputHash: "h1", output: { candidates: [] }, at: "now" });
     expect(await readCuration(root, "/repo", "h1")).toEqual({ candidates: [] });
     expect(await readCuration(root, "/repo", "h2")).toBeNull();
+  });
+
+  test("evidence texts of a run read back as a map, absent file as empty, a broken line with its number", async () => {
+    await createRun(root, "r1");
+    expect(await readEvidenceTexts(root, "r1")).toEqual(new Map());
+    await writeRunLines(root, "r1", "evidence.jsonl", [
+      { evidenceId: "s1:u1", text: "utilise makeOrder()" },
+      { evidenceId: "mem:/notes/a.md", text: "note" },
+    ]);
+    expect(await readEvidenceTexts(root, "r1")).toEqual(
+      new Map([
+        ["s1:u1", "utilise makeOrder()"],
+        ["mem:/notes/a.md", "note"],
+      ]),
+    );
+    await Bun.write(
+      join(root, "runs", "r1", "evidence.jsonl"),
+      '{"evidenceId":"s1:u1","text":"a"}\n{"evidenceId":1}\n',
+    );
+    await expect(readEvidenceTexts(root, "r1")).rejects.toThrow("line 2");
   });
 
   test("heads round-trip", async () => {

@@ -251,6 +251,35 @@ export async function proposalHistory(
   }));
 }
 
+/**
+ * Full redacted text of each human message the run's proposals cite, by evidence id; review shows it around the quote.
+ * A run written before the file existed reads as an empty map.
+ */
+export async function readEvidenceTexts(root: string, runId: string): Promise<ReadonlyMap<string, string>> {
+  const path = join(runDir(root, runId), "evidence.jsonl");
+  const file = Bun.file(path);
+  if (!(await file.exists())) {
+    return new Map();
+  }
+  const texts = new Map<string, string>();
+  (await file.text()).split("\n").forEach((line, index) => {
+    if (line.trim() === "") {
+      return;
+    }
+    let value: unknown;
+    try {
+      value = JSON.parse(line);
+    } catch (error) {
+      throw new Error(`hindsight state: ${path} line ${index + 1} is not valid JSON`, { cause: error });
+    }
+    if (!isRecord(value) || typeof value["evidenceId"] !== "string" || typeof value["text"] !== "string") {
+      throw new Error(`hindsight state: ${path} line ${index + 1} is not an evidence text`);
+    }
+    texts.set(value["evidenceId"], value["text"]);
+  });
+  return texts;
+}
+
 function extractionPath(root: string, sessionId: string): string {
   return join(root, "cache", "extract", `${sha1(sessionId)}.json`);
 }

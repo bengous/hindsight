@@ -8,6 +8,8 @@ import { selectRound } from "./round.ts";
 export type ReviewServerOptions = {
   readonly pending: () => Promise<readonly PendingProposal[]>;
   readonly bulletText: (pending: readonly PendingProposal[]) => Promise<ReadonlyMap<string, string>>;
+  /** Stored text of the human message behind each cited evidence id. */
+  readonly evidenceText: (pending: readonly PendingProposal[]) => Promise<ReadonlyMap<string, string>>;
   readonly decide: (pending: PendingProposal, request: DecisionRequest) => Promise<DecisionReply>;
   readonly timeZone: string;
   readonly now: () => Date;
@@ -70,6 +72,7 @@ export function serveReview(options: ReviewServerOptions): ReviewServer {
       now: options.now(),
       timeZone: options.timeZone,
       bulletText: await options.bulletText(pending),
+      evidenceText: await options.evidenceText(pending),
       nonce,
       client: { mode: "live", endpoint: `/decision?t=${token}` },
     });

@@ -6,6 +6,21 @@ export const mockBulletText: ReadonlyMap<string, string> = new Map([
   ["AGENTS.md#5c1e0a7d", "- Write dates in ISO format, year first."],
 ]);
 
+export const mockEvidenceText: ReadonlyMap<string, string> = new Map([
+  [
+    "s-001:u-01",
+    "Bon, les tests passent mais regarde le fichier remise.test.ts : tu as recopié un Order complet avec vingt champs. utilise la fabrique makeOrder, pas un objet écrit à la main, sinon chaque changement de schéma casse quinze tests. Et garde les montants en centimes.",
+  ],
+  [
+    "s-002:u-07",
+    "pourquoi tu recrées un Order complet dans le test ? on a makeOrder pour ça, elle est dans src/testing/factories.ts depuis le début du projet.",
+  ],
+  [
+    "s-009:u-02",
+    "Pour ce chantier précis : arrête de créer une migration par champ, je veux une seule migration quand c'est fini. Pour les autres dépôts on verra.",
+  ],
+]);
+
 export const mockProposals: readonly Proposal[] = [
   {
     id: "p-factory",

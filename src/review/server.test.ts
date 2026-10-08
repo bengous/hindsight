@@ -17,6 +17,7 @@ function options(overrides: Partial<ReviewServerOptions> = {}): ReviewServerOpti
   return {
     pending: async () => pendingMock,
     bulletText: async () => new Map(),
+    evidenceText: async () => new Map(),
     decide: async () => ({ ok: true, commit: null, followUp: [], drifted: false }),
     timeZone: "UTC",
     now: () => new Date("2026-10-08T09:00:00Z"),

@@ -256,30 +256,36 @@ describe("gateCuration", () => {
     expect(dropped[0]?.reason).toBe("below-threshold");
   });
 
-  test("an explicit instruction passes at one session", () => {
-    const explicitPlan = planGroups({
-      digests,
-      items: [
-        item("s5:u1", "ne doivent pas citer de ticket", "Keep ticket numbers out of docs.", { kind: "explicit" }),
-      ],
-      rules: ruleSources,
-      clusters: [],
-      events: [],
-      stale: [],
-      ruleDiffs: new Map(),
-      history: [],
-      maxRuleChars: 100_000,
-    });
-    const [only] = explicitPlan.groups;
-    if (only === undefined) {
-      throw new Error("no group");
-    }
-    const result = gateCuration(
-      only,
-      { candidates: [candidate({ memberEvidenceIds: ["s5:u1"], lesson: "Keep ticket numbers out of docs." })] },
-      context,
-    );
-    expect(result.proposals).toHaveLength(1);
+  test("a single-session explicit item passes only when its message carries an instruction or correction marker", () => {
+    const lesson = "Keep ticket numbers out of docs.";
+    const quote = "ne doivent pas citer de ticket";
+    const marked = session("s11", [
+      {
+        uuid: "u1",
+        at: "2026-10-05T10:00:00Z",
+        text: "à l'avenir, les docs ne doivent pas citer de ticket",
+        markers: ["standing_instruction"],
+      },
+    ]);
+    const gateOne = (evidenceId: string) => {
+      const [only] = planGroups({
+        digests: [...digests, marked],
+        items: [item(evidenceId, quote, lesson, { kind: "explicit" })],
+        rules: ruleSources,
+        clusters: [],
+        events: [],
+        stale: [],
+        ruleDiffs: new Map(),
+        history: [],
+        maxRuleChars: 100_000,
+      }).groups;
+      if (only === undefined) {
+        throw new Error("no group");
+      }
+      return gateCuration(only, { candidates: [candidate({ memberEvidenceIds: [evidenceId], lesson })] }, context);
+    };
+    expect(gateOne("s5:u1").dropped.map((entry) => entry.reason)).toEqual(["single-session-unmarked"]);
+    expect(gateOne("s11:u1").proposals).toHaveLength(1);
   });
 
   test("a conflict with a loaded rule passes at one session", () => {
@@ -327,7 +333,14 @@ describe("gateCuration", () => {
     };
     const touchedSession = session(
       "s9",
-      [{ uuid: "u1", at: "2026-10-07T10:00:00Z", text: "ne modifie jamais une entrée" }],
+      [
+        {
+          uuid: "u1",
+          at: "2026-10-07T10:00:00Z",
+          text: "ne modifie jamais une entrée",
+          markers: ["standing_instruction"],
+        },
+      ],
       {
         filesTouched: [`${repo}/apps/journal/src/entry.ts`],
       },
@@ -359,6 +372,28 @@ describe("gateCuration", () => {
     });
     const { proposals } = gateCuration(only, { candidates: [ignored] }, context);
     expect(proposals.map((proposal) => proposal.kind)).toEqual(["watch"]);
+  });
+
+  test("a loaded rule broken in two sessions keeps the model's rewording without the canned hook suggestion", () => {
+    const ignored = candidate({
+      kind: "ignored",
+      lesson: "Run bun test before committing.",
+      memberEvidenceIds: ["s6:u1", "s7:u1"],
+      ruleBulletIds: ["AGENTS.md#bb000001"],
+      op: {
+        op: "update",
+        sourcePath: `${repo}/AGENTS.md`,
+        edits: [
+          {
+            oldText: "- Run `bun test` before committing.",
+            newText: "- Run `bun test` and read its output before committing.",
+          },
+        ],
+      },
+    });
+    const { proposals } = gate(repo, [ignored], { thresholds: { minSessions: 2, minDays: 2 } });
+    expect(proposals[0]?.kind).toBe("ignored");
+    expect(proposals[0]?.suggestion).toBeNull();
   });
 
   test("a loaded rule broken in two sessions stays ignored and gets the hook suggestion", () => {
@@ -448,6 +483,36 @@ describe("gateCuration", () => {
     expect(() => decode(curatorOutput, { candidates: [candidate({ commitSubject: "x".repeat(73) })] })).toThrow(
       DecodeError,
     );
+  });
+
+  test("of two candidates sharing at least half of the smaller evidence set, only the more confident stays", () => {
+    const broad = candidate({ confidence: "medium" });
+    const narrow = candidate({
+      lesson: "Never write an Order literal in tests.",
+      memberEvidenceIds: ["s2:u1", "s3:u1"],
+      confidence: "high",
+      op: {
+        op: "add",
+        sourcePath: `${repo}/AGENTS.md`,
+        edits: [
+          {
+            oldText: "- Run `bun test` before committing.",
+            newText: "- Run `bun test` before committing.\n- No Order literals.",
+          },
+        ],
+      },
+    });
+    const apart = candidate({
+      lesson: "Run bun test before committing.",
+      memberEvidenceIds: ["s6:u1", "s7:u1"],
+      op: null,
+    });
+    const { proposals, dropped } = gate(repo, [broad, narrow, apart], { thresholds: { minSessions: 2, minDays: 2 } });
+    expect(proposals.map((proposal) => proposal.lesson)).toEqual([
+      "Never write an Order literal in tests.",
+      "Run bun test before committing.",
+    ]);
+    expect(dropped).toEqual([{ reason: "duplicate-evidence", detail: factoryLesson }]);
   });
 
   test("suppresses a fingerprint already in the ledger and duplicates within the run", () => {
