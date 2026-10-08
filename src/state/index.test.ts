@@ -102,6 +102,15 @@ describe("state", () => {
     await expect(readDecisions(root)).rejects.toThrow("line 2");
   });
 
+  test("records a drift of two blob hashes and refuses a malformed one", async () => {
+    await appendDecision({ ...decision("d", "accepted"), drift: { drafted: "aaa", found: "bbb" } }, root);
+    expect((await readDecisions(root))[0]?.drift).toEqual({ drafted: "aaa", found: "bbb" });
+    const malformed = { ...decision("e", "accepted"), drift: { drafted: "aaa" } } as unknown as Decision;
+    await expect(appendDecision(malformed, root)).rejects.toThrow("malformed decision");
+    const missing = { ...decision("f", "accepted"), drift: undefined } as unknown as Decision;
+    await expect(appendDecision(missing, root)).rejects.toThrow("malformed decision");
+  });
+
   test("refuses to record a malformed decision or a rejection without a reason", async () => {
     const malformed = { ...decision("a", "accepted"), decision: "maybe" } as unknown as Decision;
     await expect(appendDecision(malformed, root)).rejects.toThrow("malformed decision");

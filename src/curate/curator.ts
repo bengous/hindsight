@@ -161,7 +161,8 @@ export type GateContext = {
   readonly thresholds: Thresholds;
   /** Fingerprints already proposed, accepted or rejected. */
   readonly knownFingerprints: ReadonlySet<string>;
-  readonly matchesPaths: (globs: readonly string[], absFile: string, repoRoot: string) => boolean;
+  /** Whether `file` loads for `absPath` in a session whose project is `projectRoot`. */
+  readonly ruleAppliesTo: (file: RuleFile, absPath: string, projectRoot: string | null) => boolean;
 };
 
 export type GateResult = {
@@ -322,6 +323,9 @@ function crossCheck(
     confidence: candidate.confidence,
     loadedSessions: loadedSessionCount(members, cited),
   };
+  if (candidate.kind === "tool-config" || candidate.kind === "watch") {
+    return { ...base, op: null };
+  }
   if (candidate.kind === "conflict") {
     return cited.length === 0 ? { reason: "conflict-without-rule", detail: candidate.lesson } : base;
   }
@@ -353,10 +357,8 @@ function crossCheck(
     };
   }
   const touched = [...new Set(members.flatMap((ref) => ref.filesTouched))];
-  const matched = touched.some((path) =>
-    pathScoped.some(
-      (file) => file.paths !== null && file.repoRoot !== null && context.matchesPaths(file.paths, path, file.repoRoot),
-    ),
+  const matched = members.some((ref) =>
+    ref.filesTouched.some((path) => pathScoped.some((file) => context.ruleAppliesTo(file, path, ref.repoRoot))),
   );
   if (matched) {
     return { ...base, kind: "watch", op: null, confidence: "low" };

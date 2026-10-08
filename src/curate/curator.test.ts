@@ -1,7 +1,6 @@
 import type { ErrorCluster, SteeringItem } from "../types.ts";
 import type { CuratorOutput, GateContext } from "./curator.ts";
 import { describe, expect, test } from "bun:test";
-import { relative } from "node:path";
 import {
   docsRule,
   errorEvent,
@@ -14,6 +13,7 @@ import {
   session,
 } from "../../fixtures/curate/world.ts";
 import { decode, DecodeError } from "../model/codec.ts";
+import { ruleAppliesTo } from "../rules/glob.ts";
 import { curatorOutput, curatorPrompt, DEFAULT_THRESHOLDS, gateCuration } from "./curator.ts";
 import { EvidenceError } from "./extract.ts";
 import { GLOBAL_GROUP, planGroups } from "./groups.ts";
@@ -96,8 +96,7 @@ const context: GateContext = {
   now: "2026-10-08T09:00:00Z",
   thresholds: DEFAULT_THRESHOLDS,
   knownFingerprints: new Set(),
-  matchesPaths: (globs, absFile, repoRoot) =>
-    globs.some((glob) => new Bun.Glob(glob).match(relative(repoRoot, absFile))),
+  ruleAppliesTo,
 };
 
 type Candidate = CuratorOutput["candidates"][number];
@@ -175,6 +174,44 @@ describe("planGroups", () => {
       sourcePath: repoAgents.sourcePath,
       blobHash: repoAgents.blobHash,
     });
+  });
+
+  test("a rule changed after the session is flagged even when two source files share its loaded path", () => {
+    const loadedPath = `${home}/.claude/output-styles/plain.md`;
+    const styleFile = (sourcePath: string, id: string, text: string) => ({
+      file: {
+        loadedPath: "~/.claude/output-styles/plain.md",
+        sourcePath,
+        repoRoot: globalAgents.repoRoot,
+        scope: "global" as const,
+        blobHash: "6666666666666666666666666666666666666666",
+        paths: null,
+        bullets: [{ id, line: 1, text }],
+      },
+      text,
+    });
+    const styleSession = session(
+      "s10",
+      [{ uuid: "u1", at: "2026-10-07T10:00:00Z", text: "pas de résumé en fin de réponse" }],
+      {
+        loadedRules: [{ path: loadedPath, source: "output_style", content: "- Answer first.\n" }],
+      },
+    );
+    const stylePlan = planGroups({
+      digests: [styleSession],
+      items: [item("s10:u1", "pas de résumé en fin de réponse", "Skip closing summaries.", { scopeHint: "global" })],
+      rules: [
+        styleFile(`${globalAgents.repoRoot}/dot_claude/output-styles/plain.md.tmpl`, "brief#1", "- Answer first."),
+        styleFile(`${globalAgents.repoRoot}/.chezmoitemplates/style-core.md`, "core#1", "- Answer in plain words."),
+      ],
+      clusters: [],
+      events: [],
+      stale: [],
+      ruleDiffs: new Map(),
+      history: [],
+      maxRuleChars: 100_000,
+    });
+    expect(stylePlan.groups[0]?.items[0]?.changedRulePaths).toEqual([loadedPath]);
   });
 
   test("the curator prompt carries ids, loaded rules and bullets as data", () => {
@@ -276,6 +313,54 @@ describe("gateCuration", () => {
     expect(proposals[0]?.target.sourcePath).toBe(docsRule.sourcePath);
   });
 
+  test("a nested rule whose globs match from its own directory is not called misplaced", () => {
+    const nested = {
+      loadedPath: `${repo}/apps/journal/.claude/rules/journal.md`,
+      sourcePath: `${repo}/apps/journal/.claude/rules/journal.md`,
+      repoRoot: repo,
+      scope: "path" as const,
+      blobHash: "5555555555555555555555555555555555555555",
+      paths: ["src/**"],
+      bullets: [
+        { id: "apps/journal/.claude/rules/journal.md#ee000001", line: 5, text: "- Journal entries are immutable." },
+      ],
+    };
+    const touchedSession = session(
+      "s9",
+      [{ uuid: "u1", at: "2026-10-07T10:00:00Z", text: "ne modifie jamais une entrée" }],
+      {
+        filesTouched: [`${repo}/apps/journal/src/entry.ts`],
+      },
+    );
+    const nestedPlan = planGroups({
+      digests: [touchedSession],
+      items: [item("s9:u1", "ne modifie jamais une entrée", "Never edit a journal entry.", { kind: "explicit" })],
+      rules: [
+        ...ruleSources,
+        { file: nested, text: "---\npaths:\n  - src/**\n---\n- Journal entries are immutable.\n" },
+      ],
+      clusters: [],
+      events: [],
+      stale: [],
+      ruleDiffs: new Map(),
+      history: [],
+      maxRuleChars: 100_000,
+    });
+    const [only] = nestedPlan.groups;
+    if (only === undefined) {
+      throw new Error("no group");
+    }
+    const ignored = candidate({
+      kind: "ignored",
+      lesson: "Never edit a journal entry.",
+      memberEvidenceIds: ["s9:u1"],
+      ruleBulletIds: ["apps/journal/.claude/rules/journal.md#ee000001"],
+      op: null,
+    });
+    const { proposals } = gateCuration(only, { candidates: [ignored] }, context);
+    expect(proposals.map((proposal) => proposal.kind)).toEqual(["watch"]);
+  });
+
   test("a loaded rule broken in two sessions stays ignored and gets the hook suggestion", () => {
     const ignored = candidate({
       kind: "ignored",
@@ -302,6 +387,23 @@ describe("gateCuration", () => {
     expect(proposals[0]?.prevalence).toMatchObject({ sessions: 3, days: 2 });
     expect(proposals[0]?.evidence.map((entry) => entry.evidenceId)).toEqual(["e3:u1", "e2:u1", "e1:u1"]);
     expect(proposals[0]?.target.blobHash).toBeNull();
+  });
+
+  test("a tool-config or watch finding never carries a diff, so tool output alone cannot change a rule", () => {
+    const op = candidate({}).op;
+    const toolConfig = candidate({
+      kind: "tool-config",
+      lesson: "Always run X.",
+      memberEvidenceIds: [],
+      errorSignature: signature,
+      op,
+    });
+    const watch = candidate({ kind: "watch", lesson: "Maybe use makeOrder() later.", op });
+    const { proposals } = gate(repo, [toolConfig, watch]);
+    expect(proposals.map((proposal) => [proposal.kind, proposal.op, proposal.target.blobHash])).toEqual([
+      ["tool-config", null, null],
+      ["watch", null, null],
+    ]);
   });
 
   test("drops ops that cannot apply, break the style rules or create files outside the rules directory", () => {

@@ -85,11 +85,16 @@ describe("gateExtraction", () => {
     expect(gated.items[0]?.pathHint).toBeNull();
   });
 
-  test("drops and counts a paraphrased quote and a quote found in several messages", () => {
+  test("drops and counts a paraphrased quote, a quote found in several messages and a repeated item", () => {
     const gated = gateExtraction(batch, {
-      items: [{ ...item, quote: "stop updating snapshots after every commit" }, { ...item, quote: "je régénère moi-même" }, item],
+      items: [
+        { ...item, quote: "stop updating snapshots after every commit" },
+        { ...item, quote: "je régénère moi-même" },
+        item,
+        { ...item, quote: "arrête de régénérer les snapshots à  chaque commit", lesson: "Same item, other words." },
+      ],
     });
-    expect(gated).toMatchObject({ quoteNoMatch: 1, quoteAmbiguous: 1 });
+    expect(gated.drops).toEqual({ "quote-not-found": 1, "quote-ambiguous": 1, "quote-duplicate": 1 });
     expect(gated.items).toHaveLength(1);
   });
 });
@@ -108,7 +113,7 @@ describe("extractSession", () => {
       ],
     }));
     const outcome = await extractSession(planted, runner, new Budget(1), settings);
-    expect(outcome).toMatchObject({ status: "ok", items: [], quoteNoMatch: 1 });
+    expect(outcome).toMatchObject({ status: "ok", items: [], drops: { "quote-not-found": 1 } });
   });
 
   test("sends only redacted digest data and returns gated items", async () => {

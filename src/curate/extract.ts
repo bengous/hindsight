@@ -6,7 +6,7 @@ import { budgetedCall } from "../model/budget.ts";
 import { ModelError } from "../model/claude.ts";
 import { array, nullable, object, oneOf, string } from "../model/codec.ts";
 import { redactSecrets } from "../model/redact.ts";
-import { containsVerbatim, displayPath, isSeedId, sha1 } from "./ids.ts";
+import { collapseWhitespace, containsVerbatim, displayPath, isSeedId, sha1 } from "./ids.ts";
 
 export type ExtractionMessage = {
   readonly id: EvidenceId;
@@ -170,28 +170,50 @@ export function extractionPrompt(batch: ExtractionBatch): string {
   return `${EXTRACTION_INSTRUCTIONS}\n\nDATA\n${JSON.stringify({ ...header, messages }, null, 1)}\n`;
 }
 
+export type ExtractionDrop = "quote-not-found" | "quote-ambiguous" | "quote-duplicate";
+
+export type ExtractionDrops = Readonly<Record<ExtractionDrop, number>>;
+
+export const NO_DROPS: ExtractionDrops = { "quote-not-found": 0, "quote-ambiguous": 0, "quote-duplicate": 0 };
+
+export function addDrops(a: ExtractionDrops, b: ExtractionDrops): ExtractionDrops {
+  return {
+    "quote-not-found": a["quote-not-found"] + b["quote-not-found"],
+    "quote-ambiguous": a["quote-ambiguous"] + b["quote-ambiguous"],
+    "quote-duplicate": a["quote-duplicate"] + b["quote-duplicate"],
+  };
+}
+
 export type GatedExtraction = {
   readonly items: readonly SteeringItem[];
-  readonly quoteNoMatch: number;
-  readonly quoteAmbiguous: number;
+  readonly drops: ExtractionDrops;
 };
 
-/** Cites the one human message that holds each quote; a quote found in no message or in several is dropped. */
+/**
+ * Cites the one human message that holds each quote; a quote found in no message or in several is dropped, and so is
+ * a second item with the same message and quote.
+ */
 export function gateExtraction(batch: ExtractionBatch, output: Infer<typeof extractionOutput>): GatedExtraction {
   const items: SteeringItem[] = [];
-  let quoteNoMatch = 0;
-  let quoteAmbiguous = 0;
+  const drops: Record<ExtractionDrop, number> = { ...NO_DROPS };
+  const seen = new Set<string>();
   for (const item of output.items) {
     const holders = batch.messages.filter((message) => containsVerbatim(message.human, item.quote));
     const [message, ...others] = holders;
     if (message === undefined) {
-      quoteNoMatch += 1;
+      drops["quote-not-found"] += 1;
       continue;
     }
     if (others.length > 0) {
-      quoteAmbiguous += 1;
+      drops["quote-ambiguous"] += 1;
       continue;
     }
+    const key = `${message.id}\n${collapseWhitespace(item.quote)}`;
+    if (seen.has(key)) {
+      drops["quote-duplicate"] += 1;
+      continue;
+    }
+    seen.add(key);
     items.push({
       evidenceId: message.id,
       quote: item.quote,
@@ -201,7 +223,7 @@ export function gateExtraction(batch: ExtractionBatch, output: Infer<typeof extr
       pathHint: item.scopeHint === "path" ? item.pathHint : null,
     });
   }
-  return { items, quoteNoMatch, quoteAmbiguous };
+  return { items, drops };
 }
 
 export type ExtractionSettings = {
@@ -218,8 +240,7 @@ export type ExtractionOutcome =
   | {
       readonly status: "ok";
       readonly items: readonly SteeringItem[];
-      readonly quoteNoMatch: number;
-      readonly quoteAmbiguous: number;
+      readonly drops: ExtractionDrops;
       readonly retried: number;
     }
   | { readonly status: "failed"; readonly error: Error };
@@ -236,8 +257,7 @@ export async function extractSession(
   settings: ExtractionSettings,
 ): Promise<ExtractionOutcome> {
   const items: SteeringItem[] = [];
-  let quoteNoMatch = 0;
-  let quoteAmbiguous = 0;
+  let drops = NO_DROPS;
   let retried = 0;
   for (const batch of extractionBatches(digest, settings.limits)) {
     const call = (model: ModelAlias) =>
@@ -263,11 +283,10 @@ export async function extractSession(
       }
       const gated = gateExtraction(batch, result.output);
       items.push(...gated.items);
-      quoteNoMatch += gated.quoteNoMatch;
-      quoteAmbiguous += gated.quoteAmbiguous;
+      drops = addDrops(drops, gated.drops);
     } catch (error) {
       return { status: "failed", error: error instanceof Error ? error : new Error(String(error)) };
     }
   }
-  return { status: "ok", items, quoteNoMatch, quoteAmbiguous, retried };
+  return { status: "ok", items, drops, retried };
 }

@@ -162,6 +162,12 @@ export async function readRunProposals(root: string, runId: string): Promise<rea
   return value;
 }
 
+function isDrift(value: unknown): boolean {
+  return (
+    value === null || (isRecord(value) && typeof value["drafted"] === "string" && typeof value["found"] === "string")
+  );
+}
+
 function isDecision(value: unknown): value is Decision {
   return (
     isRecord(value) &&
@@ -170,6 +176,8 @@ function isDecision(value: unknown): value is Decision {
     typeof value["runId"] === "string" &&
     (value["decision"] === "accepted" ||
       (value["decision"] === "rejected" && typeof value["reason"] === "string" && value["reason"].trim() !== "")) &&
+    "drift" in value &&
+    isDrift(value["drift"]) &&
     typeof value["at"] === "string"
   );
 }

@@ -92,17 +92,16 @@ function indexMessages(digests: readonly SessionDigest[]): ReadonlyMap<EvidenceI
   return index;
 }
 
+/** Several source files can render into one loaded file (chezmoi includes), so every one of them is compared. */
 function changedRulePaths(digest: SessionDigest, rules: readonly RuleSource[]): readonly string[] {
   return digest.loadedRules.flatMap((loaded) => {
     if (loaded.content === null) {
       return [];
     }
-    const current = rules.find((rule) => expandHome(rule.file.loadedPath) === loaded.path);
-    if (current === undefined) {
-      return [];
-    }
     const seen = collapseWhitespace(loaded.content);
-    const changed = current.file.bullets.some((bullet) => !seen.includes(collapseWhitespace(bullet.text)));
+    const changed = rules
+      .filter((rule) => expandHome(rule.file.loadedPath) === loaded.path)
+      .some((rule) => rule.file.bullets.some((bullet) => !seen.includes(collapseWhitespace(bullet.text))));
     return changed ? [loaded.path] : [];
   });
 }

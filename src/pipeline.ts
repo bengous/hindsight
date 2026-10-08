@@ -17,7 +17,7 @@ import type {
 import { realpathSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { curatorOutput, curatorPrompt, DEFAULT_THRESHOLDS, gateCuration } from "./curate/curator.ts";
 import { DEFAULT_EXTRACTION_LIMITS, EXTRACTION_PROMPT_VERSION, extractSession } from "./curate/extract.ts";
 import { planGroups } from "./curate/groups.ts";
@@ -27,7 +27,7 @@ import { Budget, budgetedCall } from "./model/budget.ts";
 import { claudeRunner } from "./model/claude.ts";
 import { decode } from "./model/codec.ts";
 import { git, gitToplevel } from "./rules/git.ts";
-import { globMatcher } from "./rules/glob.ts";
+import { ruleAppliesTo } from "./rules/glob.ts";
 import { inventory } from "./rules/inventory.ts";
 import { staleScan } from "./rules/stale.ts";
 import { clusterErrors } from "./signals/index.ts";
@@ -53,7 +53,7 @@ export type PipelineDeps = {
   readonly clusterErrors: (events: readonly ErrorEvent[], thresholds: ClusterThresholds) => readonly ErrorCluster[];
   readonly inventory: (repoRoots: readonly string[]) => Promise<readonly RuleFile[]>;
   readonly staleScan: (files: readonly RuleFile[]) => Promise<readonly StaleFinding[]>;
-  readonly matchesPaths: (globs: readonly string[], absFile: string, repoRoot: string) => boolean;
+  readonly ruleAppliesTo: (file: RuleFile, absPath: string, projectRoot: string | null) => boolean;
   /** Real path of the checkout toplevel at `path`, or null when it is not one (missing or not a git repository). */
   readonly checkoutRoot: (path: string) => Promise<string | null>;
   readonly headCommit: (repoRoot: string) => Promise<string>;
@@ -71,10 +71,7 @@ export function defaultDeps(): PipelineDeps {
     clusterErrors,
     inventory: (repoRoots) => inventory(repoRoots),
     staleScan,
-    matchesPaths: (globs, absFile, repoRoot) => {
-      const path = relative(repoRoot, absFile);
-      return globs.some((glob) => globMatcher(glob)(path));
-    },
+    ruleAppliesTo,
     checkoutRoot: async (path) => {
       const toplevel = await gitToplevel(path).catch(() => null);
       return toplevel === null ? null : realpathSync(toplevel);
@@ -429,11 +426,10 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
       extracted += 1;
       grown += entry === null ? 0 : 1;
       retried += outcome.retried;
-      for (let index = 0; index < outcome.quoteNoMatch; index += 1) {
-        quoteDrops.push({ reason: "quote-no-match", detail: digest.sessionId });
-      }
-      for (let index = 0; index < outcome.quoteAmbiguous; index += 1) {
-        quoteDrops.push({ reason: "quote-ambiguous", detail: digest.sessionId });
+      for (const [reason, count] of Object.entries(outcome.drops)) {
+        for (let index = 0; index < count; index += 1) {
+          quoteDrops.push({ reason, detail: digest.sessionId });
+        }
       }
       items.push(...outcome.items);
       const freshIds = new Set<string>(digest.messages.map((message) => message.evidenceId));
@@ -479,7 +475,7 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
       now: deps.now().toISOString(),
       thresholds: options.thresholds ?? DEFAULT_THRESHOLDS,
       knownFingerprints: new Set(history.map((entry) => entry.fingerprint)),
-      matchesPaths: deps.matchesPaths,
+      ruleAppliesTo: deps.ruleAppliesTo,
     };
     for (const group of plan.groups) {
       try {
