@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isDictatedPaste } from "./human.ts";
+import { cleanHumanText, isDictatedPaste } from "./human.ts";
 
 const dictation =
   "Bon, écoute, je pense qu'on peut faire beaucoup plus simple. Aujourd'hui, à mon avis, on découpe trop le travail, et du coup je passe mon temps à relire des plans au lieu de tester.";
@@ -23,5 +23,22 @@ describe("isDictatedPaste", () => {
     ["a terminal transcript", `❯ /clear ❯ ${dictation}`],
   ])("drops a paste with %s", (_shape, body) => {
     expect(isDictatedPaste(body)).toBe(false);
+  });
+});
+
+describe("cleanHumanText", () => {
+  test("strips the round header of a pasted form and keeps the answers", () => {
+    expect(cleanHumanText("Atelier couleurs, round 2\nR2-Q1 : Les deux, selon la saison\nR2-Q2 : Sobre")).toBe(
+      "R2-Q1 : Les deux, selon la saison\nR2-Q2 : Sobre",
+    );
+    expect(cleanHumanText("Atelier plugin\nRound 1\nSources : TODO.md\nNote : je garde le plus simple")).toBe(
+      "Atelier plugin\nSources : TODO.md\nNote : je garde le plus simple",
+    );
+    expect(cleanHumanText("Cuisine, tour 3\nQ1 (four) : Encastré")).toBe("Q1 (four) : Encastré");
+  });
+
+  test("keeps a round mention that heads no form answer", () => {
+    expect(cleanHumanText("On fait le round 2 demain\nmerci")).toBe("On fait le round 2 demain\nmerci");
+    expect(cleanHumanText("Atelier couleurs, round 1")).toBe("Atelier couleurs, round 1");
   });
 });

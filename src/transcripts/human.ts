@@ -10,6 +10,8 @@ const OTHER: UserEntryKind = { kind: "other" };
 const INTERRUPT_PREFIX = "[Request interrupted by user";
 const SYSTEM_REMINDER = /<system-reminder>[\s\S]*?<\/system-reminder>/g;
 const PASTED_CONTENT = /<pasted_content(?: id="[^"]*")?>([\s\S]*?)<\/pasted_content(?: id="[^"]*")?>/g;
+const FORM_ROUND_HEADER =
+  /^[^\S\n]*(?:[^:\n]{1,60},[^\S\n]*)?(?:round|tour)[^\S\n]+\d+[^\S\n]*\n(?=[^\S\n]*[^:\n]{1,40}[^\S\n]:[^\S\n])/gim;
 const MARKDOWN_LINE = /^\s*(#|[-*>|+]\s|\d+[.)]\s|```|\{|<)/m;
 const FIRST_PERSON_FR = /\b(je|j'|moi|mon|ma|mes)\b/;
 const DICTATION_PROBE = 600;
@@ -36,6 +38,7 @@ export function cleanHumanText(raw: string): string {
   return raw
     .replace(SYSTEM_REMINDER, "")
     .replace(PASTED_CONTENT, (_block, body: string) => (isDictatedPaste(body) ? body.trim() : ""))
+    .replace(FORM_ROUND_HEADER, "")
     .trim();
 }
 
