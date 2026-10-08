@@ -34,6 +34,11 @@ describe("budgetedCall", () => {
     expect(budget.usage()).toMatchObject({ calls: 2, costUsd: 1.3 });
   });
 
+  test("a very large run budget leaves every call at its own stage cap", () => {
+    const budget = new Budget(1000);
+    expect([budget.reserve("e", 0.5), budget.reserve("c", 4), budget.reserve("s", 0.2)]).toEqual([0.5, 4, 0.2]);
+  });
+
   test("keeps whole cents of the remaining budget despite float error", () => {
     const budget = new Budget(1);
     budget.settle("extract", budget.reserve("a", 0.5), {

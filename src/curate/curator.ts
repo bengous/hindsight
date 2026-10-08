@@ -80,7 +80,7 @@ STEP 2: JUDGE each group against the rules the sessions had loaded (item.loadedR
 
 STEP 3: PLACE AND WRITE, following the human's conventions
 - The root AGENTS.md is a short index. Detail belongs in path-scoped files under .claude/rules/ with "paths" frontmatter, loaded on demand.
-- A lesson about the human's way of working in any repository goes to the global rule file.
+- The global rule file takes a lesson only when items from at least two repositories (item.repo) support it, or when an explicit instruction clearly applies to every repository. A lesson tied to one repository's domain or tools goes to that repository's rules, path-scoped when it fits, even when it reached you in the global scope.
 - Document only what an agent cannot infer from the code and no tool enforces. When a tool could enforce it, say so in "suggestion".
 - Rule text states the current design: no dates, commit hashes, version numbers or time words such as "currently", "no longer", "replaced by".
 - Rule text is English, imperative, one short bullet, in the style of the target file.
@@ -122,6 +122,7 @@ export function curatorPrompt(group: CuratorGroup): string {
       id: ref.item.evidenceId,
       session: ref.sessionId,
       at: ref.timestamp,
+      repo: ref.repoRoot === null ? null : displayPath(ref.repoRoot, null),
       kind: ref.item.kind,
       lesson: ref.item.lesson,
       quote: ref.item.quote,
@@ -264,7 +265,8 @@ type OpCheck =
   | { readonly status: "drop"; readonly reason: string; readonly detail: string };
 
 /** Replays the edits on the live text so an op that cannot apply never reaches the page. */
-function checkOp(op: DeltaOp, group: CuratorGroup, lookup: Lookup): OpCheck {
+/** `creationRoots`: checkouts where a new rule file may be created, the group's and those its evidence comes from. */
+function checkOp(op: DeltaOp, lookup: Lookup, creationRoots: readonly string[]): OpCheck {
   const source = lookup.texts.get(op.sourcePath);
   if (source === undefined) {
     if (lookup.files.has(op.sourcePath)) {
@@ -272,13 +274,16 @@ function checkOp(op: DeltaOp, group: CuratorGroup, lookup: Lookup): OpCheck {
     }
     const [edit, ...rest] = op.edits;
     const creates = edit !== undefined && rest.length === 0 && edit.oldText === "" && edit.newText.trim() !== "";
-    if (!creates || group.repoRoot === null) {
+    if (!creates) {
       return { status: "drop", reason: "unknown-target", detail: op.sourcePath };
     }
-    if (!op.sourcePath.startsWith(`${group.repoRoot}/`) || !NEW_RULE_FILE.test(op.sourcePath)) {
+    const root = creationRoots
+      .filter((candidate) => op.sourcePath.startsWith(`${candidate}/`))
+      .toSorted((a, b) => b.length - a.length)[0];
+    if (root === undefined || !NEW_RULE_FILE.test(op.sourcePath)) {
       return { status: "drop", reason: "new-file-outside-rules", detail: op.sourcePath };
     }
-    return { status: "ok", file: null, repoRoot: group.repoRoot };
+    return { status: "ok", file: null, repoRoot: root };
   }
   if (source.file.repoRoot === null) {
     return { status: "drop", reason: "no-checkout", detail: op.sourcePath };
@@ -487,6 +492,31 @@ function structuralDrop(candidate: Candidate, members: readonly ItemRef[]): Drop
   return members.length === 0 ? { reason: "no-evidence", detail: candidate.lesson } : null;
 }
 
+const ONE_REPO_NOTE = "Preuves d'un seul dépôt : la règle globale est peut-être trop large.";
+
+/**
+ * A global rule backed by one repository may only describe that repository's domain. It still reaches the human, but
+ * as a low-confidence card that says so, unless the human stated it as a standing instruction.
+ */
+function narrowGlobal(
+  judged: Judged,
+  targetFile: RuleFile | null,
+  members: readonly ItemRef[],
+  repos: number,
+): Pick<Proposal, "suggestion" | "confidence"> {
+  const global = targetFile?.scope === "global" && judged.kind !== "stale" && judged.kind !== "tool-config";
+  const instructed = members.some(
+    (ref) => ref.item.kind === "explicit" && ref.markers.some((marker) => STEERING_MARKERS.has(marker)),
+  );
+  if (!global || repos >= 2 || instructed) {
+    return { suggestion: judged.suggestion, confidence: judged.confidence };
+  }
+  return {
+    suggestion: judged.suggestion === null ? ONE_REPO_NOTE : `${ONE_REPO_NOTE} ${judged.suggestion}`,
+    confidence: "low",
+  };
+}
+
 const CONFIDENCE_RANK: Readonly<Record<Proposal["confidence"], number>> = { high: 0, medium: 1, low: 2 };
 
 type Accepted = {
@@ -570,8 +600,12 @@ export function gateCuration(group: CuratorGroup, output: CuratorOutput, context
     }
 
     let target: Proposal["target"];
+    let targetFile: RuleFile | null;
     if (judged.op !== null) {
-      const checked = checkOp(judged.op, group, lookup);
+      const creationRoots = [
+        ...new Set([group.repoRoot, ...members.map((ref) => ref.repoRoot)].filter((root) => root !== null)),
+      ];
+      const checked = checkOp(judged.op, lookup, creationRoots);
       if (checked.status === "drop") {
         dropped.push({ reason: checked.reason, detail: checked.detail });
         continue;
@@ -586,6 +620,7 @@ export function gateCuration(group: CuratorGroup, output: CuratorOutput, context
         sourcePath: judged.op.sourcePath,
         blobHash: checked.file?.blobHash ?? null,
       };
+      targetFile = checked.file;
     } else {
       const staleFinding = candidate.staleFindingId === null ? null : lookup.stale.get(candidate.staleFindingId);
       const file =
@@ -596,6 +631,7 @@ export function gateCuration(group: CuratorGroup, output: CuratorOutput, context
         continue;
       }
       target = { repoRoot, sourcePath: file.sourcePath, blobHash: null };
+      targetFile = file;
     }
 
     const fingerprint = fingerprintOf(candidate, target.sourcePath);
@@ -616,11 +652,10 @@ export function gateCuration(group: CuratorGroup, output: CuratorOutput, context
       commitSubject: candidate.commitSubject,
       target,
       op: judged.op,
-      suggestion: judged.suggestion,
+      ...narrowGlobal(judged, targetFile, members, counted.prevalence.repos),
       ruleBulletIds: [...new Set([...candidate.ruleBulletIds, ...(staleBullet === null ? [] : [staleBullet])])],
       prevalence: counted.prevalence,
       evidence: evidenceOf(members, cluster),
-      confidence: judged.confidence,
     };
     accepted.push({
       proposal,

@@ -223,6 +223,7 @@ describe("planGroups", () => {
     };
     expect(data.items.map((entry) => entry.id)).toContain("s1:u1");
     expect(data.items[0]?.loadedRules).toEqual(["~/.claude/AGENTS.md", "AGENTS.md"]);
+    expect((data.items[0] as unknown as { repo: string }).repo).toBe("~/Work/atelier");
     expect(data.ruleFiles.flatMap((file) => file.bullets.map((bullet) => bullet.id))).toContain("AGENTS.md#bb000001");
     expect(home.length).toBeGreaterThan(0);
   });
@@ -547,6 +548,71 @@ describe("gateCuration", () => {
     const lenient = gate(repo, [candidate({})], { unsupported, thresholds: { minSessions: 2, minDays: 2 } });
     expect(lenient.proposals[0]?.prevalence.sessions).toBe(2);
     expect(lenient.proposals[0]?.evidence.map((entry) => entry.evidenceId)).toEqual(["s2:u1", "s1:u1"]);
+  });
+
+  test("a global-file card resting on one repository without a marked explicit item is flagged, not dropped", () => {
+    const globalAdd = (overrides: Partial<Candidate>) =>
+      candidate({
+        lesson: "Do not update snapshots after every commit.",
+        memberEvidenceIds: ["s4:u1"],
+        op: {
+          op: "add",
+          sourcePath: globalAgents.sourcePath,
+          edits: [{ oldText: "- Commit, then update snapshots.", newText: "- Commit, then update snapshots.\n- Update snapshots only when asked." }],
+        },
+        ...overrides,
+      });
+    const lenient = { thresholds: { minSessions: 1, minDays: 1 } };
+    const [flagged] = gate(GLOBAL_GROUP, [globalAdd({})], lenient).proposals;
+    expect(flagged?.confidence).toBe("low");
+    expect(flagged?.suggestion).toBe("Preuves d'un seul dépôt : la règle globale est peut-être trop large.");
+
+    const markedPlan = planGroups({
+      digests: [
+        session("s12", [
+          {
+            uuid: "u1",
+            at: "2026-10-06T10:00:00Z",
+            text: "désormais ne régénère plus",
+            markers: ["standing_instruction"],
+          },
+        ]),
+      ],
+      items: [item("s12:u1", "désormais ne régénère plus", "Do not update snapshots.", { kind: "explicit", scopeHint: "global" })],
+      rules: ruleSources,
+      clusters: [],
+      events: [],
+      stale: [],
+      ruleDiffs: new Map(),
+      history: [],
+      maxRuleChars: 100_000,
+    });
+    const [markedGroup] = markedPlan.groups;
+    if (markedGroup === undefined) {
+      throw new Error("no group");
+    }
+    const [kept] = gateCuration(
+      markedGroup,
+      { candidates: [globalAdd({ memberEvidenceIds: ["s12:u1"] })] },
+      context,
+    ).proposals;
+    expect(kept?.confidence).toBe("high");
+    expect(kept?.suggestion).toBeNull();
+  });
+
+  test("the global group may create a rule file in the repository its evidence comes from", () => {
+    const creates = candidate({
+      lesson: "Do not update snapshots after every commit.",
+      memberEvidenceIds: ["s4:u1"],
+      op: {
+        op: "add",
+        sourcePath: `${repo}/.claude/rules/git.md`,
+        edits: [{ oldText: "", newText: '---\npaths:\n  - "**"\n---\n- Update snapshots only when asked.\n' }],
+      },
+    });
+    const [proposal] = gate(GLOBAL_GROUP, [creates], { thresholds: { minSessions: 1, minDays: 1 } }).proposals;
+    expect(proposal?.target).toEqual({ repoRoot: repo, sourcePath: `${repo}/.claude/rules/git.md`, blobHash: null });
+    expect(proposal?.confidence).toBe("high");
   });
 
   test("suppresses a fingerprint already in the ledger and duplicates within the run", () => {
