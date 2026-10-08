@@ -1,8 +1,20 @@
-import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cachedRepoRootResolver, gitRepoRoot } from "./repo.ts";
+
+const created: string[] = [];
+
+function tempDir(): string {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "hindsight-transcripts-repo-")));
+  created.push(dir);
+  return dir;
+}
+
+afterEach(() => {
+  for (const dir of created.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 
 function git(cwd: string, ...args: string[]): void {
   const result = Bun.spawnSync(["git", "-C", cwd, "-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], {
@@ -14,7 +26,7 @@ function git(cwd: string, ...args: string[]): void {
 
 describe("gitRepoRoot", () => {
   test("resolves a linked worktree to its main checkout", () => {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), "hindsight-repo-")));
+    const dir = tempDir();
     const main = join(dir, "main");
     git(dir, "init", "-q", main);
     git(main, "commit", "-q", "--allow-empty", "-m", "init");
@@ -24,13 +36,13 @@ describe("gitRepoRoot", () => {
   });
 
   test("resolves a deleted worktree through its nearest existing parent", () => {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), "hindsight-repo-")));
+    const dir = tempDir();
     git(dir, "init", "-q", "main");
     expect(gitRepoRoot(join(dir, "main", ".claude", "worktrees", "gone"))).toBe(join(dir, "main"));
   });
 
   test("resolves a deleted <repo>.wt/... worktree to its sibling checkout", () => {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), "hindsight-repo-")));
+    const dir = tempDir();
     git(dir, "init", "-q", "app");
     mkdirSync(join(dir, "app.wt", "feature"), { recursive: true });
     expect(gitRepoRoot(join(dir, "app.wt", "feature", "gone"))).toBe(join(dir, "app"));
@@ -38,7 +50,7 @@ describe("gitRepoRoot", () => {
   });
 
   test("returns null outside a checkout and for a missing dir", () => {
-    const dir = mkdtempSync(join(tmpdir(), "hindsight-norepo-"));
+    const dir = tempDir();
     expect(gitRepoRoot(dir)).toBeNull();
     expect(gitRepoRoot(join(dir, "gone"))).toBeNull();
   });

@@ -1,11 +1,22 @@
 import type { HumanMessage, SessionDigest } from "../types.ts";
-import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collect, resolveOutputStylePath } from "./collect.ts";
 
 const projectsDir = join(import.meta.dir, "../../fixtures/transcripts/projects");
+const created: string[] = [];
+
+function tempDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "hindsight-transcripts-collect-"));
+  created.push(dir);
+  return dir;
+}
+
+afterEach(() => {
+  for (const dir of created.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 const since = new Date("2026-01-01T00:00:00.000Z");
 const repoRootOf = (cwd: string): string | null => (cwd.startsWith("/home/u/proj") ? "/home/u/proj" : null);
 
@@ -18,7 +29,7 @@ const run = (overrides: { since?: Date; includeArchive?: boolean } = {}) =>
   });
 
 function writeProject(sessionId: string, entries: readonly object[]): string {
-  const dir = mkdtempSync(join(tmpdir(), "hindsight-collect-"));
+  const dir = tempDir();
   mkdirSync(join(dir, "-home-u-proj"));
   writeFileSync(
     join(dir, "-home-u-proj", `${sessionId}.jsonl`),
@@ -161,7 +172,7 @@ describe("collect", () => {
   });
 
   test("skips a partial last line and fails on a malformed one elsewhere", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hindsight-collect-"));
+    const dir = tempDir();
     const slug = join(dir, "-home-u-proj");
     mkdirSync(slug);
     const line = JSON.stringify({
@@ -217,8 +228,8 @@ describe("collect", () => {
 
 describe("resolveOutputStylePath", () => {
   test("prefers the first dir holding the style file, else names the style", () => {
-    const project = mkdtempSync(join(tmpdir(), "hindsight-style-"));
-    const user = mkdtempSync(join(tmpdir(), "hindsight-style-"));
+    const project = tempDir();
+    const user = tempDir();
     writeFileSync(join(user, "terse.md"), "Answer in plain words.");
     expect(resolveOutputStylePath("terse", [project, user])).toBe(join(user, "terse.md"));
     expect(resolveOutputStylePath("Explanatory", [project, user])).toBe("output-style:Explanatory");
