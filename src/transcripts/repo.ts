@@ -13,12 +13,21 @@ function nearestExisting(path: string): string | null {
   }
 }
 
+function siblingCheckout(path: string): string | null {
+  const segments = path.split("/");
+  const index = segments.findIndex((segment) => segment.endsWith(".wt") && segment !== ".wt");
+  if (index === -1) return null;
+  const checkout = [...segments.slice(0, index), (segments[index] ?? "").slice(0, -".wt".length)].join("/");
+  return existsSync(checkout) ? checkout : null;
+}
+
 /**
- * Main checkout of the repository that holds `cwd`: a linked worktree resolves to its main checkout,
- * and a deleted directory (a removed worktree) resolves through its nearest existing parent.
+ * Main checkout of the repository that holds `cwd`: a linked worktree resolves to its main checkout.
+ * A deleted directory resolves through the `<repo>.wt/...` sibling convention, else through its nearest
+ * existing parent.
  */
 export function gitRepoRoot(cwd: string): string | null {
-  const dir = nearestExisting(cwd);
+  const dir = existsSync(cwd) ? cwd : (siblingCheckout(cwd) ?? nearestExisting(cwd));
   if (dir === null) return null;
   const commonDir = git(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
   if (commonDir === null) return null;

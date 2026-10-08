@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cachedRepoRootResolver, gitRepoRoot } from "./repo.ts";
@@ -27,6 +27,14 @@ describe("gitRepoRoot", () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "hindsight-repo-")));
     git(dir, "init", "-q", "main");
     expect(gitRepoRoot(join(dir, "main", ".claude", "worktrees", "gone"))).toBe(join(dir, "main"));
+  });
+
+  test("resolves a deleted <repo>.wt/... worktree to its sibling checkout", () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "hindsight-repo-")));
+    git(dir, "init", "-q", "app");
+    mkdirSync(join(dir, "app.wt", "feature"), { recursive: true });
+    expect(gitRepoRoot(join(dir, "app.wt", "feature", "gone"))).toBe(join(dir, "app"));
+    expect(gitRepoRoot(join(dir, "other.wt", "feature", "gone"))).toBeNull();
   });
 
   test("returns null outside a checkout and for a missing dir", () => {
