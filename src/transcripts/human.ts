@@ -13,14 +13,22 @@ const PASTED_CONTENT = /<pasted_content(?: id="[^"]*")?>([\s\S]*?)<\/pasted_cont
 const MARKDOWN_LINE = /^\s*(#|[-*>|+]\s|\d+[.)]\s|```|\{|<)/m;
 const FIRST_PERSON_FR = /\b(je|j'|moi|mon|ma|mes)\b/;
 const DICTATION_PROBE = 600;
-const REJECTION_LEAD = /the user said:\s*/;
-const REJECTION_NOTE = /\n+Note: The user's next message may contain a correction or preference[\s\S]*$/;
-const CLARIFY_BOILERPLATE = "The user wants to clarify these questions";
+const DICTATION_MIN_LENGTH = 150;
+const PATH_OR_URL = /(?:^|[\s(])(?:~\/|\$HOME|[\w.-]+\/[\w.-]+\/)|:\/\//;
+const TERMINAL_GLYPH = /[❯●⏺]/;
 
-/** A paste with no markdown and a French first-person marker is the user's own dictation; anything else is foreign. */
+/**
+ * The user's own dictation: long, first-person French, with no markdown, path, URL or terminal glyph.
+ * Agent reports and copied terminal output fail at least one of these.
+ */
 export function isDictatedPaste(body: string): boolean {
   return (
-    !MARKDOWN_LINE.test(body) && !body.includes("**") && FIRST_PERSON_FR.test(foldText(body.slice(0, DICTATION_PROBE)))
+    body.length >= DICTATION_MIN_LENGTH &&
+    !MARKDOWN_LINE.test(body) &&
+    !body.includes("**") &&
+    !PATH_OR_URL.test(body) &&
+    !TERMINAL_GLYPH.test(body) &&
+    FIRST_PERSON_FR.test(foldText(body.slice(0, DICTATION_PROBE)))
   );
 }
 
@@ -53,13 +61,4 @@ export function classifyUserEntry(entry: JsonRecord): UserEntryKind {
   const command = slashCommand(text);
   if (command !== null) return command;
   return text === "" ? OTHER : { kind: "typed", text, markerText: text };
-}
-
-/** Feedback the human typed when rejecting a tool call, or null when the rejection carries none. */
-export function rejectionFeedback(resultText: string): string | null {
-  const lead = REJECTION_LEAD.exec(resultText);
-  if (lead === null) return null;
-  const feedback = cleanHumanText(resultText.slice(lead.index + lead[0].length).replace(REJECTION_NOTE, ""));
-  if (feedback === "" || feedback.startsWith(CLARIFY_BOILERPLATE)) return null;
-  return feedback;
 }

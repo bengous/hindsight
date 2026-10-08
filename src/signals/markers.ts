@@ -5,8 +5,6 @@ export type MarkerContext = {
   readonly afterInterrupt: boolean;
   /** Tools the human rejected since their previous message. */
   readonly rejectedTools: readonly string[];
-  /** The text is the feedback typed in a tool-rejection prompt. */
-  readonly isRejectionFeedback: boolean;
 };
 
 const CORRECTION_STRONG = [
@@ -83,10 +81,9 @@ const matchesAny = (patterns: readonly RegExp[], text: string): boolean => patte
 export function markersFor(text: string, context: MarkerContext): readonly Marker[] {
   const folded = foldText(text);
   const strong = matchesAny(CORRECTION_STRONG, folded);
-  const rejected = context.isRejectionFeedback || context.rejectedTools.length > 0;
   const flags: Record<Marker, boolean> = {
     interrupt_followup: context.afterInterrupt,
-    user_rejected: rejected,
+    user_rejected: context.rejectedTools.length > 0,
     question_rejected: context.rejectedTools.includes("AskUserQuestion"),
     plan_rejected: context.rejectedTools.includes("ExitPlanMode"),
     correction_strong: strong,

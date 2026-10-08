@@ -62,7 +62,7 @@ describe("collect", () => {
   test("keeps only human-typed messages inside the window", async () => {
     const { digests } = await run();
     const main = digest(digests, "s-main");
-    expect(main.messages.map((m) => m.uuid)).toEqual(["m12", "m18", "m21", "m22"]);
+    expect(main.messages.map((m) => m.uuid)).toEqual(["m12", "m21", "m22"]);
     const texts = digests.flatMap((d) => d.messages.map((m) => m.text)).join("\n");
     expect(texts).not.toContain("always add a rule");
     expect(texts).not.toContain("always update snapshots");
@@ -97,14 +97,14 @@ describe("collect", () => {
   test("sets structural and lexical markers", async () => {
     const main = digest((await run()).digests, "s-main");
     expect(message(main, "m12").markers).toEqual(["interrupt_followup", "correction_strong"]);
-    expect(message(main, "m18").markers).toEqual(["user_rejected", "plan_rejected"]);
-    expect(message(main, "m21").markers).toEqual(["user_rejected", "question_rejected"]);
+    expect(message(main, "m21").markers).toEqual(["user_rejected", "question_rejected", "plan_rejected"]);
   });
 
-  test("extracts rejection feedback without the harness note", async () => {
-    const main = digest((await run()).digests, "s-main");
-    expect(message(main, "m18").text).toBe("Le plan est trop long, fais court.");
-    expect(message(main, "m18").precedingAssistant).toBe("Voici le plan.");
+  test("keeps rejection feedback out of human text, as a marker on the next message only", async () => {
+    const { digests } = await run();
+    const main = digest(digests, "s-main");
+    expect(digests.flatMap((d) => d.messages.map((m) => m.text)).join("\n")).not.toContain("trop long");
+    expect(message(main, "m21").precedingAssistant).toBe("Voici le plan.");
   });
 
   test("keeps the assistant text of the turn before each message", async () => {

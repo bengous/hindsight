@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { errorExcerpt, errorSignature, hookErrorSignature, type ToolCall } from "../signals/errors.ts";
 import { markersFor } from "../signals/markers.ts";
-import { classifyUserEntry, rejectionFeedback } from "./human.ts";
+import { classifyUserEntry } from "./human.ts";
 import { contentText, isRecord, recordField, recordsField, stringField, type JsonRecord } from "./json.ts";
 import { forEachEntry } from "./read.ts";
 import { cachedRepoRootResolver } from "./repo.ts";
@@ -140,12 +140,11 @@ async function scanFile(path: string, kind: FileKind, sinceIso: string): Promise
     for (const [key, rule] of context) if (rule.source === source) context.delete(key);
   };
 
-  const addMessage = (entry: JsonRecord, text: string, markerText: string, isRejectionFeedback: boolean): void => {
+  const addMessage = (entry: JsonRecord, text: string, markerText: string): void => {
     const markers = markersFor(markerText, {
       isFirstPrompt: prompts === 0,
       afterInterrupt,
       rejectedTools,
-      isRejectionFeedback,
     });
     const precedingAssistant = assistantTail;
     prompts += 1;
@@ -215,8 +214,6 @@ async function scanFile(path: string, kind: FileKind, sinceIso: string): Promise
     const denial = stringField(entry, "toolDenialKind");
     if (denial === "user-rejected") {
       rejectedTools.push(call?.name ?? "unknown");
-      const feedback = rejectionFeedback(text);
-      if (feedback !== null) addMessage(entry, feedback, feedback, true);
       return;
     }
     if (denial !== null && IGNORED_DENIALS.has(denial)) return;
@@ -240,7 +237,7 @@ async function scanFile(path: string, kind: FileKind, sinceIso: string): Promise
     }
     const classified = classifyUserEntry(entry);
     if (classified.kind === "interrupt") afterInterrupt = true;
-    else if (classified.kind === "typed") addMessage(entry, classified.text, classified.markerText, false);
+    else if (classified.kind === "typed") addMessage(entry, classified.text, classified.markerText);
   };
 
   const onAttachment = (entry: JsonRecord): void => {

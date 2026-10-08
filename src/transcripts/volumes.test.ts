@@ -12,8 +12,8 @@ describe("volumes", () => {
       repoRootOf: (cwd) => (cwd.startsWith("/home/u/proj") ? "/home/u/proj" : null),
     });
     expect(volumes(result)).toEqual({
-      totals: { sessions: 4, humanMessages: 8, errorEvents: 4 },
-      byRepo: [{ repoRoot: "/home/u/proj", sessions: 4, humanMessages: 8, errorEvents: 4, errorSessions: 1 }],
+      totals: { sessions: 4, humanMessages: 7, errorEvents: 4 },
+      byRepo: [{ repoRoot: "/home/u/proj", sessions: 4, humanMessages: 7, errorEvents: 4, errorSessions: 1 }],
       stats: result.stats,
     });
   });

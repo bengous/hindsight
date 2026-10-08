@@ -6,7 +6,6 @@ const plain: MarkerContext = {
   isFirstPrompt: false,
   afterInterrupt: false,
   rejectedTools: [],
-  isRejectionFeedback: false,
 };
 
 const lexical: readonly (readonly [string, Marker])[] = [
@@ -40,7 +39,6 @@ describe("markersFor", () => {
     expect(
       markersFor("ok", { ...plain, afterInterrupt: true, rejectedTools: ["AskUserQuestion", "ExitPlanMode"] }),
     ).toEqual(["interrupt_followup", "user_rejected", "question_rejected", "plan_rejected"]);
-    expect(markersFor("trop long", { ...plain, isRejectionFeedback: true })).toEqual(["user_rejected"]);
   });
 
   test("returns nothing for a neutral message", () => {
