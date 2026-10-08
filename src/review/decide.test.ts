@@ -82,8 +82,9 @@ describe("decide", () => {
     expect(reply).toEqual({ ok: true, commit: "abc1234def", followUp: ["chezmoi apply x"] });
     expect(applied[0]).toMatchObject({
       runId: "run-7",
+      proposalId: "p-factory",
       subject: withOp.proposal.commitSubject,
-      why: withOp.proposal.lesson,
+      lesson: withOp.proposal.lesson,
       deployedPath: "/home/u/.claude/AGENTS.md",
       excerpts: withOp.proposal.evidence.map((item) => item.quote),
     });

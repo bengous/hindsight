@@ -26,12 +26,13 @@ function request(
 ): ApplyRequest {
   return {
     runId: "run-1",
+    proposalId: "p-1",
     repoRoot: repo.root,
     blobHash: repo.git("hash-object", "AGENTS.md").trim(),
     op: { op: "update", sourcePath: join(repo.root, "AGENTS.md"), ...op },
     deployedPath: null,
     subject: "Prefer the order factory in tests",
-    why: "Corrected in 5 sessions.",
+    lesson: "Build orders in tests with the order factory.",
     prevalence: { sessions: 5, days: 4, repos: 1, firstAt: "2026-09-14T08:00:00Z", lastAt: "2026-10-06T16:00:00Z" },
     excerpts: ["utilise la fabrique makeOrder, pas un objet"],
     ...overrides,
@@ -57,8 +58,16 @@ describe("applyDelta", () => {
     expect(readFileSync(join(repo.root, "AGENTS.md"), "utf8")).toContain("- Name things after the domain.");
     const message = repo.git("log", "-1", "--format=%B");
     expect(message).toContain("Prefer the order factory in tests");
-    expect(message).toContain("Prevalence: 5 sessions, 4 days, 1 repo (2026-09-14 to 2026-10-06).");
-    expect(message).toContain("hindsight run run-1");
+    expect(message.trimEnd()).toBe(
+      [
+        "Prefer the order factory in tests",
+        "",
+        "Build orders in tests with the order factory.",
+        "",
+        "Evidence: 5 sessions, 4 days, 1 repo",
+        "hindsight run run-1, proposal p-1",
+      ].join("\n"),
+    );
     expect(repo.git("status", "--porcelain").split("\n").filter(Boolean).sort()).toEqual([
       " M src/app.ts",
       "A  staged.txt",
@@ -108,7 +117,7 @@ describe("applyDelta", () => {
     const leaking = request(
       repo,
       { edits: [rename] },
-      { why: "User said: utilise la fabrique makeOrder, pas un objet écrit." },
+      { lesson: "User said: utilise la fabrique makeOrder, pas un objet écrit." },
     );
     expect(await applyDelta(leaking, noTargets)).toMatchObject({ reason: "excerpt-in-message" });
   });

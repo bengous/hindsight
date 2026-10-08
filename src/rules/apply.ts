@@ -7,14 +7,17 @@ import { isInside } from "./inventory.ts";
 
 export type ApplyRequest = {
   readonly runId: string;
+  readonly proposalId: string;
   readonly repoRoot: string | null;
   /** `git hash-object` of the target when the proposal was drafted; null only when the op creates the file. */
   readonly blobHash: string | null;
   readonly op: DeltaOp;
   /** Deployed file the agents load, when it differs from `op.sourcePath` (a chezmoi target). */
   readonly deployedPath: string | null;
+  /** English imperative subject (`Proposal.commitSubject`). */
   readonly subject: string;
-  readonly why: string;
+  /** English sentence opening the body (`Proposal.lesson`). */
+  readonly lesson: string;
   readonly prevalence: Prevalence;
   /** Verbatim evidence quotes: the commit message must contain none of them. */
   readonly excerpts: readonly string[];
@@ -68,18 +71,14 @@ function preview(text: string): string {
 }
 
 function commitMessage(request: ApplyRequest): string {
-  const { sessions, days, repos, firstAt, lastAt } = request.prevalence;
-  const span =
-    firstAt.slice(0, 10) === lastAt.slice(0, 10)
-      ? firstAt.slice(0, 10)
-      : `${firstAt.slice(0, 10)} to ${lastAt.slice(0, 10)}`;
+  const { sessions, days, repos } = request.prevalence;
   return [
     request.subject.replace(/\s+/g, " ").trim(),
     "",
-    request.why.trim(),
+    request.lesson.trim(),
     "",
-    `Prevalence: ${plural(sessions, "session")}, ${plural(days, "day")}, ${plural(repos, "repo")} (${span}).`,
-    `hindsight run ${request.runId}`,
+    `Evidence: ${plural(sessions, "session")}, ${plural(days, "day")}, ${plural(repos, "repo")}`,
+    `hindsight run ${request.runId}, proposal ${request.proposalId}`,
     "",
   ].join("\n");
 }

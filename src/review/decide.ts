@@ -91,8 +91,9 @@ export async function decide(
     blobHash: proposal.target.blobHash,
     op,
     deployedPath: await deps.deployedPath(op.sourcePath),
+    proposalId: proposal.id,
     subject: proposal.commitSubject,
-    why: proposal.lesson,
+    lesson: proposal.lesson,
     prevalence: proposal.prevalence,
     excerpts: proposal.evidence.map((item) => item.quote),
   });
