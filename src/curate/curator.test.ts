@@ -13,7 +13,8 @@ import {
   ruleSources,
   session,
 } from "../../fixtures/curate/world.ts";
-import { curatorPrompt, DEFAULT_THRESHOLDS, gateCuration } from "./curator.ts";
+import { decode, DecodeError } from "../model/codec.ts";
+import { curatorOutput, curatorPrompt, DEFAULT_THRESHOLDS, gateCuration } from "./curator.ts";
 import { EvidenceError } from "./extract.ts";
 import { GLOBAL_GROUP, planGroups } from "./groups.ts";
 
@@ -311,6 +312,15 @@ describe("gateCuration", () => {
       sourcePath: `${repo}/.claude/rules/tests.md`,
       blobHash: null,
     });
+  });
+
+  test("copies lesson and commit subject, and rejects a commit subject over 72 characters", () => {
+    const [proposal] = gate(repo, [candidate({})]).proposals;
+    expect(proposal?.lesson).toBe(factoryLesson);
+    expect(proposal?.commitSubject).toBe("Require makeOrder() for orders in tests");
+    expect(() => decode(curatorOutput, { candidates: [candidate({ commitSubject: "x".repeat(73) })] })).toThrow(
+      DecodeError,
+    );
   });
 
   test("suppresses a fingerprint already in the ledger and duplicates within the run", () => {
