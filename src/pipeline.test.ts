@@ -220,15 +220,17 @@ describe("run", () => {
     expect(pending?.proposal.evidence.map((entry) => entry.evidenceId)).toContain("a1:a1-3");
   });
 
-  test("a message the support gate judges unrelated leaves, and the proposal falls below threshold", async () => {
+  test("a message the support gate judges unrelated leaves, and the weakened card stays with low confidence", async () => {
     const calls: ScriptedCall[] = [];
     const rejectA3 = (call: ScriptedCall) => supportAnswer(call, (context) => context.startsWith("je t'ai dit"));
     const report = await run({ stateRoot, projectsDir }, deps(calls, script(curateAnswer, rejectA3)));
 
     expect(calls.filter((call) => call.label.startsWith("support"))).toHaveLength(1);
-    expect(report.proposals).toBe(0);
-    expect(report.dropped).toMatchObject({ unsupported: 1 });
     expect(report.failures).toEqual([]);
+    const [pending] = await pendingProposals(stateRoot);
+    expect(pending?.proposal.confidence).toBe("low");
+    expect(pending?.proposal.prevalence.sessions).toBe(2);
+    expect(pending?.proposal.suggestion).toBe("1 citation jugée hors sujet par le contrôle automatique.");
     const second: ScriptedCall[] = [];
     await run({ stateRoot, projectsDir }, deps(second, script(curateAnswer, rejectA3)));
     expect(second).toEqual([]);

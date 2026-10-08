@@ -582,15 +582,37 @@ describe("gateCuration", () => {
     ]);
   });
 
-  test("a member judged unsupported leaves, and a proposal left below threshold is dropped as unsupported", () => {
+  test("when off-topic verdicts alone push a card below threshold, it stays with low confidence and a note", () => {
     const unsupported = new Set([supportKey(factoryLesson, { evidenceId: "s3:u1", quote: "makeOrder()" })]);
     const { proposals, dropped, supportWork } = gate(repo, [candidate({})], { unsupported });
-    expect(proposals).toEqual([]);
-    expect(dropped.map((entry) => entry.reason)).toEqual(["unsupported"]);
-    expect(supportWork).toEqual([]);
-    const lenient = gate(repo, [candidate({})], { unsupported, thresholds: { minSessions: 2, minDays: 2 } });
-    expect(lenient.proposals[0]?.prevalence.sessions).toBe(2);
-    expect(lenient.proposals[0]?.evidence.map((entry) => entry.evidenceId)).toEqual(["s2:u1", "s1:u1"]);
+    expect(dropped).toEqual([]);
+    expect(
+      proposals.map((proposal) => [proposal.confidence, proposal.suggestion, proposal.prevalence.sessions]),
+    ).toEqual([["low", "1 citation jugée hors sujet par le contrôle automatique.", 2]]);
+    expect(proposals[0]?.evidence.map((entry) => entry.evidenceId)).toEqual(["s2:u1", "s1:u1"]);
+    expect(supportWork).toEqual([
+      {
+        lesson: factoryLesson,
+        members: [
+          { evidenceId: "s1:u1", quote: "makeOrder()" },
+          { evidenceId: "s2:u1", quote: "makeOrder()" },
+        ],
+      },
+    ]);
+  });
+
+  test("a card that would fail even with all its members keeps its own reason, and one left with none is unsupported", () => {
+    const one = new Set([supportKey(factoryLesson, { evidenceId: "s2:u1", quote: "makeOrder()" })]);
+    const twoSessions = candidate({ memberEvidenceIds: ["s1:u1", "s2:u1"] });
+    expect(gate(repo, [twoSessions], { unsupported: one }).dropped.map((entry) => entry.reason)).toEqual([
+      "below-threshold",
+    ]);
+    const all = new Set(
+      ["s1:u1", "s2:u1", "s3:u1"].map((evidenceId) => supportKey(factoryLesson, { evidenceId, quote: "makeOrder()" })),
+    );
+    expect(gate(repo, [candidate({})], { unsupported: all }).dropped.map((entry) => entry.reason)).toEqual([
+      "unsupported",
+    ]);
   });
 
   test("a global-file card resting on one repository without a marked explicit item is flagged, not dropped", () => {

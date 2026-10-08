@@ -516,6 +516,35 @@ export function curationCanPass(group: CuratorGroup, thresholds: Thresholds): bo
   return prevalence.sessions >= thresholds.minSessions && prevalence.days >= thresholds.minDays;
 }
 
+/** Whether the card would have passed before the support gate removed some of its members. */
+function passesWithAllMembers(
+  candidate: Candidate,
+  citedMembers: readonly ItemRef[],
+  cited: readonly RuleFile[],
+  cluster: ClusterRef | null,
+  context: GateContext,
+): boolean {
+  const judged = crossCheck(candidate, citedMembers, cited, context);
+  if ("reason" in judged) {
+    return false;
+  }
+  const counted = countOccurrences(occurrencesOf(citedMembers, cluster), context.now);
+  return thresholdVerdict(judged, citedMembers, counted, context.thresholds) === "pass";
+}
+
+/** The support gate is a cheap model's judgement: a card it weakens reaches the human, flagged, instead of vanishing. */
+function flagUnsupported(judged: Judged, removed: number): Judged {
+  const note =
+    removed === 1
+      ? "1 citation jugée hors sujet par le contrôle automatique."
+      : `${removed} citations jugées hors sujet par le contrôle automatique.`;
+  return {
+    ...judged,
+    confidence: "low",
+    suggestion: judged.suggestion === null ? note : `${note} ${judged.suggestion}`,
+  };
+}
+
 const ONE_REPO_NOTE = "Preuves d'un seul dépôt : la règle globale est peut-être trop large.";
 
 /**
@@ -607,21 +636,26 @@ export function gateCuration(group: CuratorGroup, output: CuratorOutput, context
         }),
       ).values(),
     ];
-    const judged = crossCheck(candidate, members, cited, context);
-    if ("reason" in judged) {
-      dropped.push(judged);
+    const crossChecked = crossCheck(candidate, members, cited, context);
+    if ("reason" in crossChecked) {
+      dropped.push(crossChecked);
       continue;
     }
     const cluster = candidate.errorSignature === null ? null : (lookup.clusters.get(candidate.errorSignature) ?? null);
     const counted = countOccurrences(occurrencesOf(members, cluster), context.now);
-    const verdict = thresholdVerdict(judged, members, counted, context.thresholds);
-    if (verdict !== "pass") {
+    const verdict = thresholdVerdict(crossChecked, members, counted, context.thresholds);
+    const weakenedBySupport =
+      verdict !== "pass" &&
+      unsupportedCount > 0 &&
+      passesWithAllMembers(candidate, citedMembers, cited, cluster, context);
+    if (verdict !== "pass" && !weakenedBySupport) {
       dropped.push({
-        reason: unsupportedCount > 0 ? "unsupported" : verdict,
+        reason: verdict,
         detail: `${candidate.lesson} (${counted.prevalence.sessions} sessions, ${counted.prevalence.days} days)`,
       });
       continue;
     }
+    const judged = weakenedBySupport ? flagUnsupported(crossChecked, unsupportedCount) : crossChecked;
 
     let target: Proposal["target"];
     let targetFile: RuleFile | null;
