@@ -30,6 +30,22 @@ _Avoid_: directive, correction, steering item, item, memory
 One general sentence stating the way of working a steer implies.
 _Avoid_: rule (a lesson becomes a rule only once a proposal is accepted), insight, takeaway
 
+**Debrief**:
+A fork taken at the end of a turn that answers a fixed set of questions about the turns since the session's previous debrief, from the session's own context. A debrief returns steers, observations and suspected stale rules; it proposes and never writes a rule file.
+_Avoid_: fork (the mechanism, not the role), retro, reflection, recap
+
+**Debrief Gate**:
+The check that decides whether a turn is worth a debrief, deterministic rules first, then a cheap model judgment; when it opens, it tells the debrief what to look at.
+_Avoid_: scoring engine, trigger, filter
+
+**Observation**:
+Something the agent noticed during a session, such as a blocked command or a misleading rule, always tied to a real entry of the transcript as proof.
+_Avoid_: friction, self-report, insight
+
+**Note**:
+A steer, an observation or a suspected stale rule that a debrief returned. A note is pending until Learn or Prune uses it in a proposal, and expires when nothing uses it within the lookback window.
+_Avoid_: finding, record, memory
+
 ### Rules
 
 **Rule File**:
@@ -75,7 +91,7 @@ _Avoid_: watch (as a verdict), finding kind, classification
 ### Jobs
 
 **Learn**:
-The job that reads steers and proposes to add, change or relocate rules, including a rule the human now contradicts.
+The job that reads steers and observations across sessions and proposes to add, change or relocate rules, including a rule the human now contradicts.
 _Avoid_: harvest, extraction, dreaming
 
 **Prune**:
@@ -85,8 +101,16 @@ _Avoid_: cleanup, audit, recheck
 ### Review
 
 **Proposal**:
-One reviewable change to one rule file, with its evidence and its reasoning.
+One reviewable change to one rule file, with its evidence and its reasoning. A proposal is pending until the human accepts or rejects it; it is superseded when a newer proposal targets the same rule, and expired when the rule changed so the change no longer applies.
 _Avoid_: card (the review page's display of a proposal), suggestion, candidate, finding
+
+**Handoff**:
+Accepted proposals that the human chooses to give to an agent session the human starts, for changes an exact text edit cannot make. Without a handoff, an accepted proposal is applied as one commit.
+_Avoid_: delegation, auto-apply
+
+**Notice**:
+The line shown to the human, never to the agent, at the start of a session when proposals are pending.
+_Avoid_: notification, reminder, nudge
 
 **Decision**:
 The human's acceptance or rejection of a proposal; a rejection carries a reason.
