@@ -189,6 +189,8 @@ export type Decision = {
   /** Set when the human edited the new text before accepting. */
   readonly editedOp: DeltaOp | null;
   readonly reason: string | null;
+  /** Blob hashes when the target changed between draft and accept and the reviewed replacement still matched exactly once; null otherwise. */
+  readonly drift: { readonly drafted: string; readonly found: string } | null;
   readonly commit: string | null;
   readonly at: IsoTimestamp;
 };

@@ -152,6 +152,31 @@ describe("planGroups", () => {
     expect(group(repo).ruleDiff).toContain("AGENTS.md");
   });
 
+  test("gives the global group the repository rules its sessions had loaded, so it can see a conflict there", () => {
+    expect(
+      group(GLOBAL_GROUP)
+        .rules.map((rule) => rule.file.sourcePath)
+        .toSorted(),
+    ).toEqual([globalAgents.sourcePath, repoAgents.sourcePath].toSorted());
+    const conflict = candidate({
+      kind: "conflict",
+      lesson: "Run tests only when asked.",
+      memberEvidenceIds: ["s4:u1"],
+      ruleBulletIds: ["AGENTS.md#bb000001"],
+      op: {
+        op: "update",
+        sourcePath: repoAgents.sourcePath,
+        edits: [{ oldText: "- Run `bun test` before committing.", newText: "- Run `bun test` when asked." }],
+      },
+    });
+    const [proposal] = gate(GLOBAL_GROUP, [conflict]).proposals;
+    expect(proposal?.target).toEqual({
+      repoRoot: repo,
+      sourcePath: repoAgents.sourcePath,
+      blobHash: repoAgents.blobHash,
+    });
+  });
+
   test("the curator prompt carries ids, loaded rules and bullets as data", () => {
     const data = promptData(curatorPrompt(group(repo))) as {
       items: { id: string; loadedRules: string[] }[];

@@ -39,7 +39,12 @@ function harness(result: ApplyResult): {
   };
 }
 
-const committed: ApplyResult = { kind: "committed", commit: "abc1234def", followUp: ["chezmoi apply x"] };
+const committed: ApplyResult = {
+  kind: "committed",
+  commit: "abc1234def",
+  followUp: ["chezmoi apply x"],
+  drift: null,
+};
 
 describe("decide", () => {
   test("records a rejection with its reason and applies nothing", async () => {
@@ -49,7 +54,7 @@ describe("decide", () => {
       { fingerprint: "f-factory", decision: "rejected", reason: "faux", newTexts: null },
       deps,
     );
-    expect(reply).toEqual({ ok: true, commit: null, followUp: [] });
+    expect(reply).toEqual({ ok: true, commit: null, followUp: [], drifted: false });
     expect(applied).toHaveLength(0);
     expect(recorded).toEqual([
       {
@@ -59,6 +64,7 @@ describe("decide", () => {
         decision: "rejected",
         editedOp: null,
         reason: "faux",
+        drift: null,
         commit: null,
         at: "2026-10-08T10:00:00.000Z",
       },
@@ -79,7 +85,7 @@ describe("decide", () => {
       { fingerprint: "f-factory", decision: "accepted", reason: null, newTexts: null },
       deps,
     );
-    expect(reply).toEqual({ ok: true, commit: "abc1234def", followUp: ["chezmoi apply x"] });
+    expect(reply).toEqual({ ok: true, commit: "abc1234def", followUp: ["chezmoi apply x"], drifted: false });
     expect(applied[0]).toMatchObject({
       runId: "run-7",
       proposalId: "p-factory",
@@ -106,6 +112,18 @@ describe("decide", () => {
     };
     await decide(seeded, { fingerprint: "f-factory", decision: "accepted", reason: null, newTexts: null }, deps);
     expect(applied[0]?.memoryNotes).toBe(2);
+  });
+
+  test("records the drift when the file changed after the draft", async () => {
+    const drift = { drafted: "1111111", found: "2222222" };
+    const { deps, recorded } = harness({ ...committed, drift });
+    const reply = await decide(
+      withOp,
+      { fingerprint: "f-factory", decision: "accepted", reason: null, newTexts: null },
+      deps,
+    );
+    expect(reply).toMatchObject({ ok: true, drifted: true });
+    expect(recorded[0]).toMatchObject({ decision: "accepted", drift });
   });
 
   test("applies and records the human's edited text", async () => {

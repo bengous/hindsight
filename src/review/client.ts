@@ -10,7 +10,13 @@ export type DecisionRequest = {
 };
 
 export type DecisionReply =
-  | { readonly ok: true; readonly commit: string | null; readonly followUp: readonly string[] }
+  | {
+      readonly ok: true;
+      readonly commit: string | null;
+      readonly followUp: readonly string[];
+      /** The file changed after the proposal; the replacement the human reviewed still matched and was applied. */
+      readonly drifted: boolean;
+    }
   | { readonly ok: false; readonly error: string };
 
 /** Runs in the browser. Serialized with `toString()`, so it must not reference anything outside its body. */
@@ -30,7 +36,7 @@ export function reviewClient(config: ClientConfig): void {
   const send = async (request: DecisionRequest): Promise<DecisionReply> => {
     if (config.mode === "mock") {
       await new Promise((resolve) => setTimeout(resolve, 200));
-      return { ok: true, commit: null, followUp: [] };
+      return { ok: true, commit: null, followUp: [], drifted: false };
     }
     try {
       const response = await fetch(config.endpoint, {
@@ -82,6 +88,12 @@ export function reviewClient(config: ClientConfig): void {
         else if (reply.commit) detail.textContent = ` · commit ${reply.commit.slice(0, 7)}`;
         else detail.textContent = config.mode === "mock" ? " · maquette : aucun commit" : " · rien à écrire";
         status.append(detail);
+        if (reply.drifted) {
+          status.append(
+            document.createElement("br"),
+            "Le fichier a changé depuis la proposition ; remplacement appliqué tel que relu.",
+          );
+        }
         for (const command of reply.followUp) {
           const line = document.createElement("code");
           line.textContent = command;

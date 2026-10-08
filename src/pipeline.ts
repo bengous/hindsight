@@ -2,7 +2,7 @@ import type { Thresholds } from "./curate/curator.ts";
 import type { CuratorGroup, Dropped, HistoryEntry, RuleSource } from "./curate/groups.ts";
 import type { Effort, ModelAlias, ModelRunner } from "./model/claude.ts";
 import type { ClusterThresholds } from "./signals/index.ts";
-import type { BatchFailure, RunStatus, RunSummary } from "./state/index.ts";
+import type { BatchFailure, CachedExtraction, RunStatus, RunSummary } from "./state/index.ts";
 import type { CollectOptions, CollectResult, Volumes } from "./transcripts/index.ts";
 import type {
   ErrorCluster,
@@ -157,7 +157,12 @@ export type RunReport = {
   readonly sessions: {
     readonly collected: number;
     readonly withHumanText: number;
+    /** Sessions sent to extraction in this run, whole or only their new messages. */
     readonly extracted: number;
+    /** Of those, sessions that had a cache entry and grew since. */
+    readonly grown: number;
+    /** Extraction batches retried one tier up after a schema failure. */
+    readonly retried: number;
     readonly cached: number;
     readonly failed: number;
     readonly notRun: number;
@@ -284,9 +289,27 @@ function rank(digest: SessionDigest): number {
   return digest.messages.reduce((sum, message) => sum + message.markers.length, 0);
 }
 
-function lastUuid(digest: SessionDigest): string {
-  return digest.messages.toSorted((a, b) => a.timestamp.localeCompare(b.timestamp)).at(-1)?.uuid ?? "";
+type PendingExtraction = {
+  /** The session restricted to the messages never sent to extraction under this prompt version. */
+  readonly digest: SessionDigest;
+  readonly entry: CachedExtraction | null;
+};
+
+/** Cached items whose message is still in the window and was extracted as it reads now. */
+function cachedItems(entry: CachedExtraction | null, digest: SessionDigest): readonly SteeringItem[] {
+  if (entry === null) {
+    return [];
+  }
+  const known = new Set(entry.extractedUuids);
+  const current = new Map<string, string>(digest.messages.map((message) => [message.evidenceId, message.uuid]));
+  return entry.items.filter((item) => {
+    const uuid = current.get(item.evidenceId);
+    return uuid !== undefined && known.has(uuid);
+  });
 }
+
+/** The user's routing rule: after a failed call, retry one tier up; never escalate to fable. */
+const NEXT_TIER: Readonly<Record<ModelAlias, ModelAlias | null>> = { haiku: "sonnet", sonnet: "opus", opus: null };
 
 async function loadSeeds(options: RunOptions, deps: PipelineDeps): Promise<readonly SessionDigest[]> {
   const seeds = options.seeds ?? [];
@@ -369,28 +392,33 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
 
     const promptVersion = `${EXTRACTION_PROMPT_VERSION}:${extractModel.model}`;
     const items: SteeringItem[] = [];
-    const toExtract: SessionDigest[] = [];
+    const pending: PendingExtraction[] = [];
     let cached = 0;
     for (const digest of withText) {
-      const hit = await readExtraction(stateRoot, {
-        sessionId: digest.sessionId,
-        lastUuid: lastUuid(digest),
-        promptVersion,
-      });
-      if (hit === null) {
-        toExtract.push(digest);
-      } else {
+      const entry = await readExtraction(stateRoot, digest.sessionId, promptVersion);
+      items.push(...cachedItems(entry, digest));
+      const known = new Set(entry?.extractedUuids ?? []);
+      const fresh = digest.messages.filter((message) => !known.has(message.uuid));
+      if (fresh.every((message) => message.text.trim() === "")) {
         cached += 1;
-        items.push(...hit);
+      } else {
+        pending.push({ digest: { ...digest, messages: fresh }, entry });
       }
     }
-    const ranked = toExtract.toSorted((a, b) => rank(b) - rank(a) || b.lastAt.localeCompare(a.lastAt));
+    const ranked = pending.toSorted(
+      (a, b) => rank(b.digest) - rank(a.digest) || b.digest.lastAt.localeCompare(a.digest.lastAt),
+    );
     const selected = ranked.slice(0, options.maxSessions ?? ranked.length);
+    const quoteDrops: Dropped[] = [];
     let extracted = 0;
+    let grown = 0;
+    let retried = 0;
     let failed = 0;
-    await forEachPool(selected, options.concurrency ?? DEFAULT_CONCURRENCY, async (digest) => {
+    await forEachPool(selected, options.concurrency ?? DEFAULT_CONCURRENCY, async ({ digest, entry }) => {
+      const retryModel = NEXT_TIER[extractModel.model];
       const outcome = await extractSession(digest, deps.runner, budget, {
         ...extractModel,
+        ...(retryModel === null ? {} : { retryModel }),
         limits: DEFAULT_EXTRACTION_LIMITS,
       });
       if (outcome.status === "failed") {
@@ -399,10 +427,21 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
         return;
       }
       extracted += 1;
+      grown += entry === null ? 0 : 1;
+      retried += outcome.retried;
+      for (let index = 0; index < outcome.quoteNoMatch; index += 1) {
+        quoteDrops.push({ reason: "quote-no-match", detail: digest.sessionId });
+      }
+      for (let index = 0; index < outcome.quoteAmbiguous; index += 1) {
+        quoteDrops.push({ reason: "quote-ambiguous", detail: digest.sessionId });
+      }
       items.push(...outcome.items);
+      const freshIds = new Set<string>(digest.messages.map((message) => message.evidenceId));
       await writeExtraction(stateRoot, {
-        key: { sessionId: digest.sessionId, lastUuid: lastUuid(digest), promptVersion },
-        items: outcome.items,
+        sessionId: digest.sessionId,
+        promptVersion,
+        extractedUuids: [...new Set([...(entry?.extractedUuids ?? []), ...digest.messages.map((m) => m.uuid)])],
+        items: [...(entry?.items ?? []).filter((item) => !freshIds.has(item.evidenceId)), ...outcome.items],
         at: deps.now().toISOString(),
       });
     });
@@ -434,7 +473,7 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
     });
 
     const proposals: Proposal[] = [];
-    const dropped: Dropped[] = [...plan.dropped];
+    const dropped: Dropped[] = [...quoteDrops, ...plan.dropped];
     const context = {
       runId,
       now: deps.now().toISOString(),
@@ -504,9 +543,11 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
       collected: gathered.digests.length,
       seeds: seeds.length,
       extracted,
+      grown,
+      retried,
       cached,
       failed,
-      notRun: toExtract.length - selected.length,
+      notRun: pending.length - selected.length,
       items: items.length,
       groups: plan.groups.length,
       proposals: ordered.length,
@@ -521,9 +562,11 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
         collected: gathered.digests.length,
         withHumanText: withText.length,
         extracted,
+        grown,
+        retried,
         cached,
         failed,
-        notRun: toExtract.length - selected.length,
+        notRun: pending.length - selected.length,
       },
       items: items.length,
       groups: plan.groups.length,

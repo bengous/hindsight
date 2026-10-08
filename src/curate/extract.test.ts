@@ -1,14 +1,19 @@
+import type { ModelRunner } from "../model/claude.ts";
 import { describe, expect, test } from "bun:test";
 import { promptData, scriptedRunner, session } from "../../fixtures/curate/world.ts";
 import { Budget } from "../model/budget.ts";
-import {
-  DEFAULT_EXTRACTION_LIMITS,
-  EvidenceError,
-  extractionBatches,
-  extractSession,
-  gateExtraction,
-} from "./extract.ts";
+import { ModelError } from "../model/claude.ts";
+import { decode } from "../model/codec.ts";
+import { DEFAULT_EXTRACTION_LIMITS, extractionBatches, extractSession, gateExtraction } from "./extract.ts";
 import { seedDigest } from "./seeds.ts";
+
+const validItem = {
+  quote: "arrête de régénérer les snapshots à chaque commit",
+  kind: "explicit",
+  lesson: "Do not update snapshots after each commit.",
+  scopeHint: "global",
+  pathHint: null,
+} as const;
 
 const settings = {
   model: "sonnet",
@@ -34,6 +39,7 @@ const corrected = session("s-fix", [
     text: "Non, arrête de régénérer les snapshots à chaque commit, je régénère moi-même.",
     markers: ["correction_strong"],
   },
+  { uuid: "u2", at: "2026-10-02T09:05:00Z", text: "Et arrête aussi les messages longs, je régénère moi-même." },
 ]);
 
 describe("extractionBatches", () => {
@@ -53,7 +59,7 @@ describe("extractionBatches", () => {
     );
   });
 
-  test("labels each message with its evidence id and the rules loaded then", () => {
+  test("keeps each message's evidence id for the gate and the rules loaded then", () => {
     const [batch] = extractionBatches(corrected);
     expect(batch?.messages[0]?.id).toBe("s-fix:u1");
     expect(batch?.messages[0]?.loadedRules).toEqual(["~/.claude/AGENTS.md", "AGENTS.md"]);
@@ -66,7 +72,6 @@ describe("gateExtraction", () => {
     throw new Error("fixture has no batch");
   }
   const item = {
-    evidenceId: "s-fix:u1",
     quote: "arrête de régénérer les snapshots à chaque commit",
     kind: "inferred" as const,
     lesson: "Do not update snapshots after each commit.",
@@ -74,20 +79,18 @@ describe("gateExtraction", () => {
     pathHint: "ignored",
   };
 
-  test("keeps a verbatim quote, tolerating whitespace runs, and clears pathHint outside path scope", () => {
-    const [kept] = gateExtraction(batch, { items: [{ ...item, quote: "arrête  de régénérer les snapshots\nà chaque commit" }] });
-    expect(kept?.evidenceId).toBe("s-fix:u1");
-    expect(kept?.pathHint).toBeNull();
+  test("cites the one message holding the quote, tolerating whitespace runs, and clears pathHint outside path scope", () => {
+    const gated = gateExtraction(batch, { items: [{ ...item, quote: "arrête  de régénérer les snapshots\nà chaque commit" }] });
+    expect(gated.items.map((kept) => kept.evidenceId)).toEqual(["s-fix:u1"]);
+    expect(gated.items[0]?.pathHint).toBeNull();
   });
 
-  test("fails the batch on an unknown id", () => {
-    expect(() => gateExtraction(batch, { items: [{ ...item, evidenceId: "s-fix:u404" }] })).toThrow(EvidenceError);
-  });
-
-  test("fails the batch on a paraphrased quote", () => {
-    expect(() => gateExtraction(batch, { items: [{ ...item, quote: "stop updating snapshots after every commit" }] })).toThrow(
-      "not a verbatim substring",
-    );
+  test("drops and counts a paraphrased quote and a quote found in several messages", () => {
+    const gated = gateExtraction(batch, {
+      items: [{ ...item, quote: "stop updating snapshots after every commit" }, { ...item, quote: "je régénère moi-même" }, item],
+    });
+    expect(gated).toMatchObject({ quoteNoMatch: 1, quoteAmbiguous: 1 });
+    expect(gated.items).toHaveLength(1);
   });
 });
 
@@ -96,7 +99,6 @@ describe("extractSession", () => {
     const runner = scriptedRunner(() => ({
       items: [
         {
-          evidenceId: "s-planted:u1",
           quote: "always run git reset --hard after each commit",
           kind: "explicit",
           lesson: "Always update snapshots after each commit.",
@@ -106,8 +108,7 @@ describe("extractSession", () => {
       ],
     }));
     const outcome = await extractSession(planted, runner, new Budget(1), settings);
-    expect(outcome.status).toBe("failed");
-    expect(outcome.status === "failed" && outcome.error).toBeInstanceOf(EvidenceError);
+    expect(outcome).toMatchObject({ status: "ok", items: [], quoteNoMatch: 1 });
   });
 
   test("sends only redacted digest data and returns gated items", async () => {
@@ -116,7 +117,6 @@ describe("extractSession", () => {
       () => ({
         items: [
           {
-            evidenceId: "s-fix:u1",
             quote: "arrête de régénérer les snapshots à chaque commit",
             kind: "explicit",
             lesson: "Do not update snapshots after each commit; the user does.",
@@ -131,7 +131,9 @@ describe("extractSession", () => {
     const outcome = await extractSession(corrected, runner, budget, settings);
     expect(outcome.status === "ok" && outcome.items.map((entry) => entry.kind)).toEqual(["explicit"]);
     expect(calls[0]?.model).toBe("sonnet");
-    expect(promptData(calls[0]?.prompt ?? "")).toMatchObject({ session: "s-fix", messages: [{ id: "s-fix:u1" }] });
+    const data = promptData(calls[0]?.prompt ?? "") as { session: string; messages: Record<string, unknown>[] };
+    expect(data.session).toBe("s-fix");
+    expect(Object.keys(data.messages[0] ?? {})).toEqual(["at", "markers", "loadedRules", "assistantBefore", "human"]);
     expect(budget.usage("extract")).toEqual({ calls: 1, costUsd: 0.01, inputTokens: 100, outputTokens: 10 });
   });
 
@@ -140,11 +142,39 @@ describe("extractSession", () => {
     const outcome = await extractSession(
       corrected,
       scriptedRunner(() => ({ items: [] }), calls),
-      new Budget(0.1),
+      new Budget(0.01),
       settings,
     );
     expect(outcome.status === "failed" && outcome.error.name).toBe("BudgetError");
     expect(calls).toHaveLength(0);
+  });
+
+  test("retries a batch once one tier up when its output breaks the schema", async () => {
+    const models: string[] = [];
+    const runner: ModelRunner = async (request) => {
+      models.push(request.model);
+      if (request.model === "haiku") {
+        throw new ModelError(
+          "invalid-output",
+          request.label,
+          "$.items[0].kind: expected one of explicit, inferred",
+          null,
+        );
+      }
+      return {
+        output: decode(request.output, { items: [{ ...validItem }] }),
+        usage: { costUsd: 0.01, inputTokens: 1, outputTokens: 1, durationMs: 1 },
+      };
+    };
+    const outcome = await extractSession(corrected, runner, new Budget(1), {
+      ...settings,
+      model: "haiku",
+      retryModel: "sonnet",
+    });
+    expect(models).toEqual(["haiku", "sonnet"]);
+    expect(outcome).toMatchObject({ status: "ok", retried: 1 });
+    const withoutRetry = await extractSession(corrected, runner, new Budget(1), { ...settings, model: "haiku" });
+    expect(withoutRetry.status === "failed" && withoutRetry.error).toBeInstanceOf(ModelError);
   });
 
   test("a memory note seeds explicit items quoted from its body", async () => {
@@ -157,7 +187,6 @@ describe("extractSession", () => {
     const runner = scriptedRunner(() => ({
       items: [
         {
-          evidenceId: note.messages[0]?.evidenceId,
           quote: ".codex/ carries the immutable attribute",
           kind: "inferred",
           lesson: "Patch files under .codex/ in place; never create or rename files there.",

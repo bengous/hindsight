@@ -62,7 +62,7 @@ NO-OP IS PREFERRED
 Return {"candidates": []} when nothing deserves a change. Propose at most 12 candidates, strongest first. Prefer fewer, well-supported changes over many weak ones. Never rewrite a whole file.
 
 STEP 1: GROUP
-Group the items that express the same default behaviour, across sessions. One candidate per distinct default. An "inferred" item needs support from several sessions; an "explicit" item may stand alone.
+Group the items that express the same default behaviour, across sessions. One candidate per distinct default. An "inferred" item needs support from several sessions; an "explicit" item may stand alone. Cite only items that state that same default: an item about a neighbouring habit belongs to another candidate or to none.
 
 STEP 2: JUDGE each group against the rules the sessions had loaded (item.loadedRules) and the current rule files.
 - missing: no rule states it. Propose an "add".
@@ -90,7 +90,7 @@ OPS
 
 CARD TEXT
 - title: in French, at most two short lines: the change and its reason.
-- why: in French, two to four sentences: the evidence and the reasoning.
+- why: in French, two to four sentences: the evidence and the reasoning. Quote the human only with words from the items you cite.
 - lesson: one English sentence stating the default behaviour.
 - commitSubject: in English, imperative mood, at most 72 characters, naming the rule change (for example "Require makeOrder() for orders in tests").
 - confidence: high, medium or low.`;

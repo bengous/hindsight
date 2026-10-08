@@ -75,13 +75,43 @@ describe("applyDelta", () => {
     ]);
   });
 
-  test("refuses when the file changed since the draft", async () => {
+  test("applies the reviewed replacement on a changed file when it still matches once, and reports the drift", async () => {
     const repo = fixture();
     const drafted = request(repo, { edits: [rename] });
     repo.write("AGENTS.md", `${RULES}- Added later.\n`);
     repo.git("commit", "-qam", "later");
+    const found = repo.git("hash-object", "AGENTS.md").trim();
+    const result = await applyDelta(drafted, noTargets);
+    expect(result).toMatchObject({ kind: "committed", drift: { drafted: drafted.blobHash, found } });
+    expect(readFileSync(join(repo.root, "AGENTS.md"), "utf8")).toBe(
+      "# Rules\n- Keep functions small.\n- Name things after the domain.\n- Added later.\n",
+    );
+  });
+
+  test("reports no drift when the file is as drafted", async () => {
+    const repo = fixture();
+    expect(await applyDelta(request(repo, { edits: [rename] }), noTargets)).toMatchObject({
+      kind: "committed",
+      drift: null,
+    });
+  });
+
+  test("refuses as hash-mismatch when the file changed and the replacement no longer matches", async () => {
+    const repo = fixture();
+    const drafted = request(repo, { edits: [rename] });
+    repo.write("AGENTS.md", "# Rules\n- Keep functions small.\n- Name things clearly.\n");
+    repo.git("commit", "-qam", "reworded");
     const result = await applyDelta(drafted, noTargets);
     expect(result).toMatchObject({ kind: "refused", reason: "hash-mismatch" });
+    if (result.kind === "refused") expect(result.detail).toContain("old-text-missing");
+    expect(repo.git("status", "--porcelain")).toBe("");
+  });
+
+  test("refuses a changed file with uncommitted edits as dirty, not as drift", async () => {
+    const repo = fixture();
+    const drafted = request(repo, { edits: [rename] });
+    repo.write("AGENTS.md", `${RULES}- Uncommitted.\n`);
+    expect(await applyDelta(drafted, noTargets)).toMatchObject({ kind: "refused", reason: "dirty-file" });
   });
 
   test("refuses an old text found zero or several times, and leaves the file alone", async () => {

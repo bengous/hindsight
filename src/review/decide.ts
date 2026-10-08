@@ -80,12 +80,19 @@ export async function decide(
   const base = { proposalId: proposal.id, fingerprint: proposal.fingerprint, runId, at: deps.now().toISOString() };
 
   if (request.decision === "rejected") {
-    await deps.record({ ...base, decision: "rejected", editedOp: null, reason: request.reason, commit: null });
-    return { ok: true, commit: null, followUp: [] };
+    await deps.record({
+      ...base,
+      decision: "rejected",
+      editedOp: null,
+      reason: request.reason,
+      drift: null,
+      commit: null,
+    });
+    return { ok: true, commit: null, followUp: [], drifted: false };
   }
   if (proposal.op === null) {
-    await deps.record({ ...base, decision: "accepted", editedOp: null, reason: null, commit: null });
-    return { ok: true, commit: null, followUp: [] };
+    await deps.record({ ...base, decision: "accepted", editedOp: null, reason: null, drift: null, commit: null });
+    return { ok: true, commit: null, followUp: [], drifted: false };
   }
 
   const op = request.newTexts === null ? proposal.op : withNewTexts(proposal.op, request.newTexts);
@@ -106,11 +113,18 @@ export async function decide(
 
   const editedOp = request.newTexts === null ? null : op;
   try {
-    await deps.record({ ...base, decision: "accepted", editedOp, reason: null, commit: result.commit });
+    await deps.record({
+      ...base,
+      decision: "accepted",
+      editedOp,
+      reason: null,
+      drift: result.drift,
+      commit: result.commit,
+    });
   } catch (error) {
     throw new Error(`commit ${result.commit} is in ${proposal.target.repoRoot}, but the decision was not recorded`, {
       cause: error,
     });
   }
-  return { ok: true, commit: result.commit, followUp: result.followUp };
+  return { ok: true, commit: result.commit, followUp: result.followUp, drifted: result.drift !== null };
 }

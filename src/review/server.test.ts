@@ -17,7 +17,7 @@ function options(overrides: Partial<ReviewServerOptions> = {}): ReviewServerOpti
   return {
     pending: async () => pendingMock,
     bulletText: async () => new Map(),
-    decide: async () => ({ ok: true, commit: null, followUp: [] }),
+    decide: async () => ({ ok: true, commit: null, followUp: [], drifted: false }),
     timeZone: "UTC",
     now: () => new Date("2026-10-08T09:00:00Z"),
     ...overrides,
@@ -71,7 +71,7 @@ describe("serveReview", () => {
       options({
         decide: async (_, request) => {
           calls.push(request);
-          return { ok: true, commit: null, followUp: [] };
+          return { ok: true, commit: null, followUp: [], drifted: false };
         },
       }),
     );
@@ -98,7 +98,7 @@ describe("serveReview", () => {
           overlap ||= active > 1;
           await Bun.sleep(30);
           active--;
-          return { ok: true, commit: null, followUp: [] };
+          return { ok: true, commit: null, followUp: [], drifted: false };
         },
       }),
     );
@@ -164,13 +164,65 @@ describe("review end to end", () => {
       const reply = (await response.json()) as DecisionReply;
       expect(reply.ok).toBe(true);
       const head = repo.git("rev-parse", "HEAD").trim();
-      expect(reply).toEqual({ ok: true, commit: head, followUp: [] });
+      expect(reply).toEqual({ ok: true, commit: head, followUp: [], drifted: false });
       expect(repo.git("log", "-1", "--format=%s").trim()).toBe(proposal.commitSubject);
       expect(await readDecisions(stateRoot)).toMatchObject([{ fingerprint: proposal.fingerprint, commit: head }]);
       expect(await (await fetch(server.url)).text()).toContain("Aucune proposition en attente.");
       expect(repo.git("status", "--porcelain")).toBe("");
     } finally {
       await server.stop();
+    }
+  });
+
+  test("two cards on one file both commit: the second applies on the drifted file and says so", async () => {
+    const shared = tempRepo({ "AGENTS.md": "# Rules\n- First rule.\n- Second rule.\n" });
+    const sharedState = join(tempDir("review-shared"), "state");
+    try {
+      const base = mockProposals[0];
+      if (base === undefined) throw new Error("fixture mockProposals is empty");
+      const sourcePath = join(shared.root, "AGENTS.md");
+      const blobHash = shared.git("hash-object", "AGENTS.md").trim();
+      const card = (id: string, oldText: string, newText: string): Proposal => ({
+        ...base,
+        id,
+        fingerprint: `f-${id}`,
+        target: { repoRoot: shared.root, sourcePath, blobHash },
+        op: { op: "update", sourcePath, edits: [{ oldText, newText }] },
+      });
+      await createRun(sharedState, "run-shared");
+      await writeRunJson(sharedState, "run-shared", "proposals.json", [
+        card("one", "- First rule.", "- First rule, reworded."),
+        card("two", "- Second rule.", "- Second rule, reworded."),
+      ]);
+      const server = serveReview(
+        options({
+          pending: () => pendingProposals(sharedState),
+          decide: (target, request) =>
+            decide(target, request, {
+              apply: (applyRequest) => applyDelta(applyRequest, async () => []),
+              record: (decision) => appendDecision(decision, sharedState),
+              deployedPath: async () => null,
+              now: () => new Date("2026-10-08T10:00:00Z"),
+            }),
+        }),
+      );
+      try {
+        const accept = async (fingerprint: string): Promise<DecisionReply> =>
+          (await (
+            await post(server.url, { fingerprint, decision: "accepted", reason: null, newTexts: null })
+          ).json()) as DecisionReply;
+        expect(await accept("f-one")).toMatchObject({ ok: true, drifted: false });
+        expect(await accept("f-two")).toMatchObject({ ok: true, drifted: true });
+      } finally {
+        await server.stop();
+      }
+      expect(await Bun.file(sourcePath).text()).toBe("# Rules\n- First rule, reworded.\n- Second rule, reworded.\n");
+      expect(shared.git("log", "--format=%s").trim().split("\n")).toHaveLength(3);
+      const decisions = await readDecisions(sharedState);
+      expect(decisions.map((decision) => decision.drift?.drafted ?? null)).toEqual([null, blobHash]);
+    } finally {
+      shared.cleanup();
+      rmSync(join(sharedState, ".."), { recursive: true, force: true });
     }
   });
 });

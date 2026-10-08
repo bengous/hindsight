@@ -148,7 +148,7 @@ export function scriptedRunner(
     calls.push(call);
     return {
       output: decode(request.output, script(call)),
-      usage: { costUsd, inputTokens: 100, outputTokens: 10, durationMs: 1 },
+      usage: { costUsd: Math.min(costUsd, request.maxBudgetUsd), inputTokens: 100, outputTokens: 10, durationMs: 1 },
     };
   };
 }

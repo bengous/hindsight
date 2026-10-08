@@ -38,8 +38,16 @@ export type ApplyRefusal =
   | "old-text-ambiguous"
   | "commit-rejected";
 
+export type Drift = { readonly drafted: string; readonly found: string };
+
 export type ApplyResult =
-  | { readonly kind: "committed"; readonly commit: string; readonly followUp: readonly string[] }
+  | {
+      readonly kind: "committed";
+      readonly commit: string;
+      readonly followUp: readonly string[];
+      /** Set when the file changed after the draft and the reviewed replacement still matched exactly once. */
+      readonly drift: Drift | null;
+    }
   | { readonly kind: "refused"; readonly reason: ApplyRefusal; readonly detail: string };
 
 /** Deployed paths to re-apply after a commit to a chezmoi source; empty when chezmoi does not manage the file. */
@@ -140,6 +148,7 @@ export async function applyDelta(
   const path = relative(repoRoot, op.sourcePath);
   const exists = existsSync(op.sourcePath);
   let original: string | null = null;
+  let drift: Drift | null = null;
   let next: string;
   if (creates) {
     if (exists) return refuse("file-exists", path);
@@ -149,13 +158,22 @@ export async function applyDelta(
     next = op.edits[0]?.newText ?? "";
   } else {
     if (!exists) return refuse("hash-mismatch", `${path} no longer exists`);
-    const hash = await hashObject(op.sourcePath, repoRoot);
-    if (hash !== request.blobHash) return refuse("hash-mismatch", `${path}: drafted ${request.blobHash}, now ${hash}`);
     const status = await git(repoRoot, ["status", "--porcelain", "--", path]);
     if (status.trim() !== "") return refuse("dirty-file", `${path} has uncommitted changes`);
+    const drafted = request.blobHash;
+    if (drafted === null) return refuse("invalid-op", "an edit needs the drafted blobHash");
+    const hash = await hashObject(op.sourcePath, repoRoot);
+    drift = hash === drafted ? null : { drafted, found: hash };
     original = await Bun.file(op.sourcePath).text();
     const edited = editedText(original, op);
-    if (edited.kind === "refused") return edited;
+    if (edited.kind === "refused") {
+      return drift === null
+        ? edited
+        : refuse(
+            "hash-mismatch",
+            `${path}: drafted ${drift.drafted}, now ${drift.found}; ${edited.reason}: ${edited.detail}`,
+          );
+    }
     next = edited.text;
   }
 
@@ -179,5 +197,6 @@ export async function applyDelta(
     ...(request.deployedPath === null ? [] : [request.deployedPath]),
   ];
   const unique = [...new Set(deployed)];
-  return { kind: "committed", commit: sha, followUp: unique.length === 0 ? [] : [`chezmoi apply ${unique.join(" ")}`] };
+  const followUp = unique.length === 0 ? [] : [`chezmoi apply ${unique.join(" ")}`];
+  return { kind: "committed", commit: sha, followUp, drift };
 }

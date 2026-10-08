@@ -212,14 +212,21 @@ export function planGroups(input: PlanInput): {
   const groups = [...buckets.entries()]
     .toSorted(([a], [b]) => a.localeCompare(b))
     .map(([key, content]): CuratorGroup => {
-      const scopeRules =
-        key === GLOBAL_GROUP
-          ? globalRules
-          : [...input.rules.filter((rule) => rule.file.repoRoot === key && !isGlobalRule(rule)), ...globalRules];
       const needed = new Set([
         ...content.items.flatMap((ref) => ref.loadedRulePaths),
         ...content.stale.map((finding) => finding.sourcePath),
       ]);
+      const loadedElsewhere = input.rules.filter(
+        (rule) => !isGlobalRule(rule) && rule.file.repoRoot !== key && needed.has(expandHome(rule.file.loadedPath)),
+      );
+      const scopeRules =
+        key === GLOBAL_GROUP
+          ? [...globalRules, ...loadedElsewhere]
+          : [
+              ...input.rules.filter((rule) => rule.file.repoRoot === key && !isGlobalRule(rule)),
+              ...globalRules,
+              ...loadedElsewhere,
+            ];
       const { rules, listed } = boundRules(scopeRules, needed, input.maxRuleChars);
       const repoRoot = key === GLOBAL_GROUP ? (globalRules[0]?.file.repoRoot ?? null) : key;
       return {

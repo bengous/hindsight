@@ -55,6 +55,7 @@ function decision(fingerprint: string, verdict: Decision["decision"]): Decision 
     runId: "r1",
     decision: verdict,
     editedOp: null,
+    drift: null,
     reason: verdict === "rejected" ? "trop spécifique" : null,
     commit: null,
     at: "2026-10-08T10:00:00Z",
@@ -112,13 +113,18 @@ describe("state", () => {
     );
   });
 
-  test("the extraction cache hits only on the same session, last uuid and prompt version", async () => {
-    const key = { sessionId: "s1", lastUuid: "u9", promptVersion: "v1" };
-    await writeExtraction(root, { key, items: [], at: "2026-10-08T10:00:00Z" });
-    expect(await readExtraction(root, key)).toEqual([]);
-    expect(await readExtraction(root, { ...key, lastUuid: "u10" })).toBeNull();
-    expect(await readExtraction(root, { ...key, promptVersion: "v2" })).toBeNull();
-    expect(await readExtraction(root, { ...key, sessionId: "s2" })).toBeNull();
+  test("the extraction cache returns the entry of the same session and prompt version only", async () => {
+    const entry = {
+      sessionId: "s1",
+      promptVersion: "v1",
+      extractedUuids: ["u1", "u2"],
+      items: [],
+      at: "2026-10-08T10:00:00Z",
+    };
+    await writeExtraction(root, entry);
+    expect(await readExtraction(root, "s1", "v1")).toEqual(entry);
+    expect(await readExtraction(root, "s1", "v2")).toBeNull();
+    expect(await readExtraction(root, "s2", "v1")).toBeNull();
   });
 
   test("the curation cache hits only on the same input hash", async () => {

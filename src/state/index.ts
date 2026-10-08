@@ -8,14 +8,11 @@ export type PendingProposal = {
   readonly proposal: Proposal;
 };
 
-export type ExtractionKey = {
-  readonly sessionId: string;
-  readonly lastUuid: string;
-  readonly promptVersion: string;
-};
-
 export type CachedExtraction = {
-  readonly key: ExtractionKey;
+  readonly sessionId: string;
+  readonly promptVersion: string;
+  /** Uuids of every message already sent to extraction, whether or not it yielded an item. */
+  readonly extractedUuids: readonly string[];
   readonly items: readonly SteeringItem[];
   readonly at: string;
 };
@@ -250,22 +247,32 @@ function extractionPath(root: string, sessionId: string): string {
   return join(root, "cache", "extract", `${sha1(sessionId)}.json`);
 }
 
-export async function readExtraction(root: string, key: ExtractionKey): Promise<readonly SteeringItem[] | null> {
-  const value = await readJson(extractionPath(root, key.sessionId));
-  if (!isRecord(value) || !isRecord(value["key"]) || !Array.isArray(value["items"])) {
+/** The cached extraction of a session under this prompt version; another version reads as a miss. */
+export async function readExtraction(
+  root: string,
+  sessionId: string,
+  promptVersion: string,
+): Promise<CachedExtraction | null> {
+  const path = extractionPath(root, sessionId);
+  const value = await readJson(path);
+  if (value === null) {
     return null;
   }
-  const cached = value["key"];
-  const sameKey =
-    cached["sessionId"] === key.sessionId &&
-    cached["lastUuid"] === key.lastUuid &&
-    cached["promptVersion"] === key.promptVersion;
-  return sameKey ? (value["items"] as readonly SteeringItem[]) : null;
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value["extractedUuids"]) ||
+    !Array.isArray(value["items"]) ||
+    typeof value["sessionId"] !== "string"
+  ) {
+    throw new Error(`hindsight state: ${path} is not an extraction cache entry`);
+  }
+  const entry = value as CachedExtraction;
+  return entry.sessionId === sessionId && entry.promptVersion === promptVersion ? entry : null;
 }
 
 export async function writeExtraction(root: string, entry: CachedExtraction): Promise<void> {
   await ensureStateRoot(root);
-  await writeJson(extractionPath(root, entry.key.sessionId), entry);
+  await writeJson(extractionPath(root, entry.sessionId), entry);
 }
 
 function curationPath(root: string, groupKey: string): string {

@@ -16,9 +16,12 @@ export class BudgetError extends Error {
 
 const EMPTY_USAGE: ModelUsage = { calls: 0, costUsd: 0, inputTokens: 0, outputTokens: 0 };
 
+/** Below this, a call is refused rather than started with a cap too small to produce an answer. */
+export const MIN_CALL_USD = 0.02;
+
 /**
- * Each call reserves its own `--max-budget-usd` cap before it starts, so concurrent calls cannot overshoot the run cap.
- * A failed call without reported usage is charged its whole reservation.
+ * Each call reserves its `--max-budget-usd` cap before it starts, lowered to what remains of the run cap, so
+ * concurrent calls cannot overshoot it. A failed call without reported usage is charged its whole reservation.
  */
 export class Budget {
   private reservedUsd = 0;
@@ -26,11 +29,15 @@ export class Budget {
 
   constructor(readonly capUsd: number) {}
 
-  reserve(label: string, amountUsd: number): void {
-    if (this.spentUsd() + this.reservedUsd + amountUsd > this.capUsd + 1e-9) {
+  /** Reserves up to `wantedUsd` and returns the amount reserved, which becomes the call's cap. */
+  reserve(label: string, wantedUsd: number): number {
+    const available = Math.floor((this.capUsd - this.spentUsd() - this.reservedUsd) * 100 + 1e-6) / 100;
+    if (available < MIN_CALL_USD) {
       throw new BudgetError(label, this.capUsd);
     }
+    const amountUsd = Math.min(wantedUsd, available);
     this.reservedUsd += amountUsd;
+    return amountUsd;
   }
 
   settle(stage: Stage, reservedUsd: number, usage: CallUsage | null): void {
@@ -68,13 +75,13 @@ export async function budgetedCall<T>(
   stage: Stage,
   request: ModelRequest<T>,
 ): Promise<ModelResult<T>> {
-  budget.reserve(request.label, request.maxBudgetUsd);
+  const capUsd = budget.reserve(request.label, request.maxBudgetUsd);
   try {
-    const result = await runner(request);
-    budget.settle(stage, request.maxBudgetUsd, result.usage);
+    const result = await runner({ ...request, maxBudgetUsd: capUsd });
+    budget.settle(stage, capUsd, result.usage);
     return result;
   } catch (error) {
-    budget.settle(stage, request.maxBudgetUsd, error instanceof ModelError ? error.usage : null);
+    budget.settle(stage, capUsd, error instanceof ModelError ? error.usage : null);
     throw error;
   }
 }
