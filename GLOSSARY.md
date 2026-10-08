@@ -112,6 +112,10 @@ _Avoid_: delegation, auto-apply
 The line shown to the human, never to the agent, at the start of a session when proposals are pending.
 _Avoid_: notification, reminder, nudge
 
+**Review**:
+The human's pass over pending proposals on hindsight's local page, where each decision is taken.
+_Avoid_: round, approval, triage
+
 **Decision**:
 The human's acceptance or rejection of a proposal; a rejection carries a reason.
 

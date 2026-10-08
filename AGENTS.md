@@ -1,5 +1,7 @@
 # hindsight
 
+[SPEC.md](SPEC.md) defines the target system, [GLOSSARY.md](GLOSSARY.md) its vocabulary, [docs/adr/](docs/adr/) the decisions that are hard to reverse. `src/` holds the prototype described below; where the two disagree, SPEC.md wins.
+
 Out-of-band curation of agent rules. `hindsight run` reads recent Claude Code transcripts and the current rule files (AGENTS.md, CLAUDE.md, `.claude/rules/`), finds patterns that recur across sessions, verifies them against the code, and writes proposals with evidence. `hindsight review` serves a local page where the human accepts or rejects each proposal; an accepted proposal becomes one git commit in the target repo.
 
 ## Invariants
