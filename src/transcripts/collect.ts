@@ -1,6 +1,7 @@
 import type { ErrorEvent, HumanMessage, LoadedRule, LoadedRuleSource, Marker, SessionDigest } from "../types.ts";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
 import { errorExcerpt, errorSignature, hookErrorSignature, type ToolCall } from "../signals/errors.ts";
 import { markersFor } from "../signals/markers.ts";
 import { classifyUserEntry, rejectionFeedback } from "./human.ts";
@@ -44,7 +45,15 @@ type MessageDraft = {
   readonly markers: readonly Marker[];
 };
 
-type ErrorDraft = { readonly uuid: string; readonly event: ErrorEvent };
+type ErrorDraft = {
+  readonly uuid: string;
+  readonly fileSessionId: string;
+  readonly timestamp: string;
+  readonly cwd: string | null;
+  readonly tool: string;
+  readonly signature: string;
+  readonly excerpt: string;
+};
 
 type FileScan = {
   readonly path: string;
@@ -82,18 +91,25 @@ const PATTERNS: Readonly<Record<FileKind, readonly string[]>> = {
 
 const ruleKey = (rule: LoadedRule): string => `${rule.source}\0${rule.path}\0${rule.content ?? ""}`;
 
+/** Absolute path of the output style file, or `output-style:<name>` for a style with no file (a built-in one). */
+export function resolveOutputStylePath(name: string, styleDirs: readonly string[]): string {
+  const file = styleDirs.map((dir) => join(dir, `${name}.md`)).find((candidate) => existsSync(candidate));
+  return file ?? `output-style:${name}`;
+}
+
+function absolutePath(path: string, cwd: string | null): string {
+  if (path.startsWith("~/")) return join(homedir(), path.slice(2));
+  if (isAbsolute(path) || cwd === null) return path;
+  return resolve(cwd, path);
+}
+
 function required(entry: JsonRecord, key: string, path: string): string {
   const value = stringField(entry, key);
   if (value === null) throw new Error(`${path}: ${stringField(entry, "type")} entry without "${key}"`);
   return value;
 }
 
-async function scanFile(
-  path: string,
-  kind: FileKind,
-  sinceIso: string,
-  repoRootOf: (cwd: string) => string | null,
-): Promise<FileScan> {
+async function scanFile(path: string, kind: FileKind, sinceIso: string): Promise<FileScan> {
   let sessionId: string | null = null;
   let startCwd: string | null = null;
   let customTitle: string | null = null;
@@ -155,20 +171,14 @@ async function scanFile(
   const addError = (entry: JsonRecord, tool: string, signature: string, text: string): void => {
     const timestamp = required(entry, "timestamp", path);
     if (timestamp < sinceIso) return;
-    const uuid = required(entry, "uuid", path);
-    const entrySessionId = required(entry, "sessionId", path);
-    const cwd = stringField(entry, "cwd") ?? startCwd;
     errors.push({
-      uuid,
-      event: {
-        evidenceId: `${entrySessionId}:${uuid}`,
-        sessionId: entrySessionId,
-        repoRoot: cwd === null ? null : repoRootOf(cwd),
-        timestamp,
-        tool,
-        signature,
-        excerpt: errorExcerpt(text),
-      },
+      uuid: required(entry, "uuid", path),
+      fileSessionId: required(entry, "sessionId", path),
+      timestamp,
+      cwd: stringField(entry, "cwd") ?? startCwd,
+      tool,
+      signature,
+      excerpt: errorExcerpt(text),
     });
   };
 
@@ -190,7 +200,9 @@ async function scanFile(
         calls.set(id, { name, input });
         const pathKey = PATH_INPUTS[name];
         const touched = pathKey === undefined ? null : stringField(input, pathKey);
-        if (touched !== null && kind !== "subagent") filesTouched.add(touched);
+        if (touched !== null && kind !== "subagent") {
+          filesTouched.add(absolutePath(touched, stringField(entry, "cwd") ?? startCwd));
+        }
       }
     }
   };
@@ -216,8 +228,14 @@ async function scanFile(
     const results = (message === null ? [] : recordsField(message, "content")).filter(
       (block) => stringField(block, "type") === "tool_result",
     );
-    if (results.length > 0) {
-      for (const block of results) onToolResult(entry, block);
+    if (results.length > 1) {
+      throw new Error(
+        `${path}: entry ${stringField(entry, "uuid")} holds ${results.length} tool results; evidence ids assume one`,
+      );
+    }
+    const [result] = results;
+    if (result !== undefined) {
+      onToolResult(entry, result);
       return;
     }
     const classified = classifyUserEntry(entry);
@@ -249,7 +267,16 @@ async function scanFile(
         const name = style === null ? null : stringField(style, "name");
         if (style === null || name === null) return;
         unload("output_style");
-        load({ path: `output-style:${name}`, source: "output_style", content: stringField(style, "prompt") });
+        const cwd = stringField(entry, "cwd") ?? startCwd;
+        const styleDirs = [
+          ...(cwd === null ? [] : [join(cwd, ".claude", "output-styles")]),
+          join(homedir(), ".claude", "output-styles"),
+        ];
+        load({
+          path: resolveOutputStylePath(name, styleDirs),
+          source: "output_style",
+          content: stringField(style, "prompt"),
+        });
         return;
       }
       case "hook_blocking_error":
@@ -377,7 +404,7 @@ export async function collect(options: CollectOptions): Promise<CollectResult> {
   const fileCounts = { main: 0, subagent: 0, archive: 0 };
   for (const kind of kinds) {
     for (const path of await listFiles(options.projectsDir, kind, sinceMs)) {
-      scans.push(await scanFile(path, kind, sinceIso, repoRootOf));
+      scans.push(await scanFile(path, kind, sinceIso));
       fileCounts[kind] += 1;
     }
   }
@@ -401,6 +428,11 @@ export async function collect(options: CollectOptions): Promise<CollectResult> {
     else group.push(scan);
   }
   for (const group of groups.values()) group.sort(byFirstAt);
+  const droppedIds = new Set([...dropped.sdk, ...dropped.scratch]);
+  const chains = sessionChains(groups);
+  const headOf = new Map(
+    chains.flatMap((chain) => chain.map((sessionId) => [sessionId, chain[0] ?? sessionId] as const)),
+  );
 
   const seen = new Set<string>();
   let duplicateEntries = 0;
@@ -414,17 +446,28 @@ export async function collect(options: CollectOptions): Promise<CollectResult> {
       return true;
     });
 
+  const toEvent = (draft: ErrorDraft): ErrorEvent => ({
+    evidenceId: `${draft.fileSessionId}:${draft.uuid}`,
+    sessionId: headOf.get(draft.fileSessionId) ?? draft.fileSessionId,
+    repoRoot: draft.cwd === null ? null : repoRootOf(draft.cwd),
+    timestamp: draft.timestamp,
+    tool: draft.tool,
+    signature: draft.signature,
+    excerpt: draft.excerpt,
+  });
+
   const digests: SessionDigest[] = [];
   const errors: ErrorEvent[] = [];
-  for (const chain of sessionChains(groups)) {
+  for (const chain of chains) {
     const chainScans = chain.flatMap((sessionId) => groups.get(sessionId) ?? []);
     const messages = chainScans.flatMap((scan) => fresh(scan.messages));
-    errors.push(...chainScans.flatMap((scan) => fresh(scan.errors).map((draft) => draft.event)));
+    errors.push(...chainScans.flatMap((scan) => fresh(scan.errors).map(toEvent)));
     if (messages.length === 0) continue;
     digests.push(toDigest(chain, chainScans, messages, repoRootOf));
   }
   for (const scan of subagentScans.sort(byFirstAt)) {
-    errors.push(...fresh(scan.errors).map((draft) => draft.event));
+    if (scan.sessionId !== null && droppedIds.has(scan.sessionId)) continue;
+    errors.push(...fresh(scan.errors).map(toEvent));
   }
 
   return {
@@ -466,7 +509,7 @@ function toDigest(
   if (firstAt === undefined || lastAt === undefined) throw new Error(`session ${sessionId} has no timestamp`);
   const messages: HumanMessage[] = drafts.map((draft) => ({
     evidenceId: `${draft.sessionId}:${draft.uuid}`,
-    sessionId: draft.sessionId,
+    sessionId,
     uuid: draft.uuid,
     timestamp: draft.timestamp,
     cwd: draft.cwd,

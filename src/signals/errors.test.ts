@@ -124,6 +124,10 @@ describe("clusterErrors", () => {
     ]);
   });
 
+  test("defaults to 3 sessions over 2 days", () => {
+    expect(clusterErrors(events).map((c) => c.signature)).toEqual(["Bash[rm] hook-block guard.ts: BLOCKED"]);
+  });
+
   test("ranks by sessions, then days", () => {
     const clusters = clusterErrors(events, { minSessions: 1, minDays: 1 });
     expect(clusters.map((c) => c.signature)).toEqual([

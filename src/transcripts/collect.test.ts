@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { collect } from "./collect.ts";
+import { collect, resolveOutputStylePath } from "./collect.ts";
 
 const projectsDir = join(import.meta.dir, "../../fixtures/transcripts/projects");
 const since = new Date("2026-01-01T00:00:00.000Z");
@@ -16,6 +16,24 @@ const run = (overrides: { since?: Date; includeArchive?: boolean } = {}) =>
     includeArchive: overrides.includeArchive ?? true,
     repoRootOf,
   });
+
+function writeProject(sessionId: string, entries: readonly object[]): string {
+  const dir = mkdtempSync(join(tmpdir(), "hindsight-collect-"));
+  mkdirSync(join(dir, "-home-u-proj"));
+  writeFileSync(
+    join(dir, "-home-u-proj", `${sessionId}.jsonl`),
+    entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+  );
+  return dir;
+}
+
+const entry = (uuid: string, extra: object): object => ({
+  uuid,
+  timestamp: "2026-03-05T10:00:00.000Z",
+  sessionId: "s-tmp",
+  cwd: "/home/u/proj",
+  ...extra,
+});
 
 function digest(digests: readonly SessionDigest[], sessionId: string): SessionDigest {
   const found = digests.find((candidate) => candidate.sessionId === sessionId);
@@ -117,6 +135,7 @@ describe("collect", () => {
     const merged = digest(digests, "s-old");
     expect(merged.chain).toEqual(["s-old", "s-new"]);
     expect(merged.messages.map((m) => m.evidenceId)).toEqual(["s-old:o01", "s-new:n01"]);
+    expect(merged.messages.map((m) => m.sessionId)).toEqual(["s-old", "s-old"]);
     expect(digests.map((d) => d.sessionId)).not.toContain("s-new");
     expect(stats.duplicateEntries).toBe(1);
   });
@@ -164,9 +183,44 @@ describe("collect", () => {
     );
   });
 
+  test("resolves relative tool paths against the entry cwd", async () => {
+    const dir = writeProject("s-tmp", [
+      entry("q01", { type: "user", origin: { kind: "human" }, message: { role: "user", content: "Lis le fichier" } }),
+      entry("q02", {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "r1", name: "Read", input: { file_path: "src/rel.ts" } }],
+        },
+      }),
+    ]);
+    const { digests } = await collect({ projectsDir: dir, since, includeArchive: false, repoRootOf });
+    expect(digests[0]?.filesTouched).toEqual(["/home/u/proj/src/rel.ts"]);
+  });
+
+  test("fails on an entry holding several tool results", async () => {
+    const block = { type: "tool_result", tool_use_id: "x", is_error: true, content: "boom" };
+    const dir = writeProject("s-tmp", [
+      entry("q01", { type: "user", message: { role: "user", content: [block, block] } }),
+    ]);
+    await expect(collect({ projectsDir: dir, since, includeArchive: false, repoRootOf })).rejects.toThrow(
+      "entry q01 holds 2 tool results",
+    );
+  });
+
   test("fails when the projects dir is missing", async () => {
     await expect(collect({ projectsDir: "/nonexistent/projects", since, includeArchive: false })).rejects.toThrow(
       "projects dir not found",
     );
+  });
+});
+
+describe("resolveOutputStylePath", () => {
+  test("prefers the first dir holding the style file, else names the style", () => {
+    const project = mkdtempSync(join(tmpdir(), "hindsight-style-"));
+    const user = mkdtempSync(join(tmpdir(), "hindsight-style-"));
+    writeFileSync(join(user, "terse.md"), "Answer in plain words.");
+    expect(resolveOutputStylePath("terse", [project, user])).toBe(join(user, "terse.md"));
+    expect(resolveOutputStylePath("Explanatory", [project, user])).toBe("output-style:Explanatory");
   });
 });

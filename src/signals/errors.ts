@@ -11,6 +11,8 @@ export type ClusterThresholds = {
   readonly minDays: number;
 };
 
+export const DEFAULT_CLUSTER_THRESHOLDS: ClusterThresholds = { minSessions: 3, minDays: 2 };
+
 const HARNESS_CLASSES: readonly (readonly [string, RegExp])[] = [
   ["worktree isolation", /is isolated in the worktree|working-directory isolation context/],
   ["edit before read", /file has not been read yet/],
@@ -167,7 +169,10 @@ function toCluster(signature: string, events: readonly ErrorEvent[]): ErrorClust
   };
 }
 
-export function clusterErrors(events: readonly ErrorEvent[], thresholds: ClusterThresholds): readonly ErrorCluster[] {
+export function clusterErrors(
+  events: readonly ErrorEvent[],
+  thresholds: ClusterThresholds = DEFAULT_CLUSTER_THRESHOLDS,
+): readonly ErrorCluster[] {
   const groups = new Map<string, ErrorEvent[]>();
   for (const event of events) {
     if (isNoiseSignature(event.signature)) continue;
