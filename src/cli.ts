@@ -159,9 +159,19 @@ function printRun(report: RunReport): void {
     `coût : ${report.usage.costUsd.toFixed(3)} $ sur ${report.budgetUsd} $ (${report.usage.calls} appels, ${report.usage.inputTokens} tokens en entrée, ${report.usage.outputTokens} en sortie)`,
   );
   for (const failure of report.failures) {
-    console.log(`échec ${failure.stage} ${failure.key} · ${failure.kind} · ${oneLine(failure.message, 120)}`);
+    console.log(`échec ${failure.stage} ${failure.key} · ${failure.kind}`);
   }
+  if (report.failures.length > 0) console.log("détail des échecs : run.json dans le dossier d'état");
   console.log(`état : ${report.stateDir}`);
+}
+
+// Terminal output lands in the transcript of the calling session; transcript excerpts and model text stay in the state dir.
+function withoutExcerpts(report: ScanReport) {
+  return { ...report, clusters: report.clusters.map(({ excerpt: _excerpt, ...cluster }) => cluster) };
+}
+
+function withoutFailureMessages(report: RunReport) {
+  return { ...report, failures: report.failures.map(({ message: _message, ...failure }) => failure) };
 }
 
 async function printStatus(json: boolean): Promise<void> {
@@ -195,14 +205,14 @@ async function main(argv: readonly string[]): Promise<number> {
     case "scan": {
       const flags = parse(rest);
       const report = await scan(scanOptions(flags));
-      if (flags.json === true) console.log(JSON.stringify(report, null, 2));
+      if (flags.json === true) console.log(JSON.stringify(withoutExcerpts(report), null, 2));
       else printScan(report);
       return 0;
     }
     case "run": {
       const flags = parse(rest);
       const report = await run(runOptions(flags));
-      if (flags.json === true) console.log(JSON.stringify(report, null, 2));
+      if (flags.json === true) console.log(JSON.stringify(withoutFailureMessages(report), null, 2));
       else printRun(report);
       return report.status === "complete" ? 0 : 1;
     }
