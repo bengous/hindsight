@@ -4,12 +4,14 @@ import type { RunOptions, RunReport, ScanOptions, ScanReport } from "./pipeline.
 import { parseArgs } from "node:util";
 import { displayPath } from "./curate/ids.ts";
 import { run, scan } from "./pipeline.ts";
+import { startReview } from "./review/index.ts";
 import { defaultStateRoot, listRunIds, pendingProposals, readRunSummary } from "./state/index.ts";
 
 const usage = `hindsight <commande> [options]
 
   scan      passe déterministe seule : groupes d'erreurs, règles périmées, volumes (aucun appel modèle)
   run       passe complète : extraction, curation, propositions
+  review    sert la page de revue des propositions en attente (Ctrl+C pour arrêter)
   status    propositions en attente, dernier run, coût
 
 Options communes (scan, run) :
@@ -207,6 +209,20 @@ async function main(argv: readonly string[]): Promise<number> {
     case "status":
       await printStatus(parse(rest).json === true);
       return 0;
+    case "review": {
+      parse(rest);
+      const root = defaultStateRoot();
+      const pending = await pendingProposals(root);
+      if (pending.length === 0) {
+        console.log("aucune proposition en attente : lance d'abord hindsight run");
+        return 0;
+      }
+      const server = startReview(root);
+      console.log(`${pending.length} propositions en attente\nrevue : ${server.url}`);
+      await new Promise<void>((resolve) => process.once("SIGINT", resolve));
+      await server.stop();
+      return 0;
+    }
     default:
       throw new UsageError(`commande inconnue "${command}"`);
   }
