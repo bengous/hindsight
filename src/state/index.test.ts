@@ -14,11 +14,13 @@ import {
   readEvidenceTexts,
   readExtraction,
   readHeads,
+  readSupportVerdicts,
   writeCuration,
   writeExtraction,
   writeHeads,
   writeRunJson,
   writeRunLines,
+  writeSupportVerdicts,
 } from "./index.ts";
 
 let root: string;
@@ -162,6 +164,25 @@ describe("state", () => {
       '{"evidenceId":"s1:u1","text":"a"}\n{"evidenceId":1}\n',
     );
     await expect(readEvidenceTexts(root, "r1")).rejects.toThrow("line 2");
+  });
+
+  test("support verdicts round-trip under one prompt version and read as empty under another", async () => {
+    expect(await readSupportVerdicts(root, "v1")).toEqual(new Map());
+    await writeSupportVerdicts(
+      root,
+      "v1",
+      new Map([
+        ["k1", true],
+        ["k2", false],
+      ]),
+    );
+    expect(await readSupportVerdicts(root, "v1")).toEqual(
+      new Map([
+        ["k1", true],
+        ["k2", false],
+      ]),
+    );
+    expect(await readSupportVerdicts(root, "v2")).toEqual(new Map());
   });
 
   test("heads round-trip", async () => {

@@ -94,8 +94,23 @@ function curateAnswer(call: ScriptedCall, memberIds?: readonly string[]) {
   };
 }
 
-function script(curate: (call: ScriptedCall) => unknown = curateAnswer) {
-  return (call: ScriptedCall) => (call.label.startsWith("extract") ? extractAnswer(call) : curate(call));
+type SupportData = { excerpts: { ref: string; context: string }[] };
+
+function supportAnswer(call: ScriptedCall, rejects: (context: string) => boolean = () => false) {
+  const data = promptData(call.prompt) as SupportData;
+  return { verdicts: data.excerpts.map((excerpt) => ({ ref: excerpt.ref, supports: !rejects(excerpt.context) })) };
+}
+
+function script(
+  curate: (call: ScriptedCall) => unknown = curateAnswer,
+  support: (call: ScriptedCall) => unknown = supportAnswer,
+) {
+  return (call: ScriptedCall) => {
+    if (call.label.startsWith("extract")) {
+      return extractAnswer(call);
+    }
+    return call.label.startsWith("support") ? support(call) : curate(call);
+  };
 }
 
 function deps(
@@ -203,6 +218,20 @@ describe("run", () => {
     expect(report.dropped).toMatchObject({ "quote-duplicate": 1 });
     const [pending] = await pendingProposals(stateRoot);
     expect(pending?.proposal.evidence.map((entry) => entry.evidenceId)).toContain("a1:a1-3");
+  });
+
+  test("a message the support gate judges unrelated leaves, and the proposal falls below threshold", async () => {
+    const calls: ScriptedCall[] = [];
+    const rejectA3 = (call: ScriptedCall) => supportAnswer(call, (context) => context.startsWith("je t'ai dit"));
+    const report = await run({ stateRoot, projectsDir }, deps(calls, script(curateAnswer, rejectA3)));
+
+    expect(calls.filter((call) => call.label.startsWith("support"))).toHaveLength(1);
+    expect(report.proposals).toBe(0);
+    expect(report.dropped).toMatchObject({ unsupported: 1 });
+    expect(report.failures).toEqual([]);
+    const second: ScriptedCall[] = [];
+    await run({ stateRoot, projectsDir }, deps(second, script(curateAnswer, rejectA3)));
+    expect(second).toEqual([]);
   });
 
   test("a re-run reuses the caches and proposes nothing new", async () => {

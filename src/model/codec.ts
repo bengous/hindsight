@@ -47,6 +47,18 @@ export function string(options: { readonly minLength?: number; readonly maxLengt
   };
 }
 
+export function boolean(): Codec<boolean> {
+  return {
+    schema: { type: "boolean" },
+    check: (value, path) => {
+      if (typeof value !== "boolean") {
+        throw new DecodeError(path, "a boolean");
+      }
+      return value;
+    },
+  };
+}
+
 export function oneOf<const T extends string>(values: readonly T[]): Codec<T> {
   return {
     schema: { type: "string", enum: values },

@@ -27,7 +27,7 @@ export type CachedCuration<T> = {
 export type RunStatus = "running" | "complete" | "partial" | "failed";
 
 export type BatchFailure = {
-  readonly stage: "extract" | "curate";
+  readonly stage: "extract" | "curate" | "support";
   readonly key: string;
   readonly kind: string;
   readonly message: string;
@@ -328,6 +328,39 @@ export async function readCuration(root: string, groupKey: string, inputHash: st
 export async function writeCuration<T>(root: string, entry: CachedCuration<T>): Promise<void> {
   await ensureStateRoot(root);
   await writeJson(curationPath(root, entry.groupKey), entry);
+}
+
+function supportPath(root: string): string {
+  return join(root, "cache", "support.json");
+}
+
+/** Verdicts of the support gate by `supportKey`; a cache written under another prompt version reads as empty. */
+export async function readSupportVerdicts(root: string, promptVersion: string): Promise<ReadonlyMap<string, boolean>> {
+  const path = supportPath(root);
+  const value = await readJson(path);
+  if (value === null) {
+    return new Map();
+  }
+  if (!isRecord(value) || typeof value["promptVersion"] !== "string" || !isRecord(value["verdicts"])) {
+    throw new Error(`hindsight state: ${path} is not a support verdict cache`);
+  }
+  if (value["promptVersion"] !== promptVersion) {
+    return new Map();
+  }
+  return new Map(
+    Object.entries(value["verdicts"]).flatMap(([key, verdict]) =>
+      typeof verdict === "boolean" ? [[key, verdict]] : [],
+    ),
+  );
+}
+
+export async function writeSupportVerdicts(
+  root: string,
+  promptVersion: string,
+  verdicts: ReadonlyMap<string, boolean>,
+): Promise<void> {
+  await ensureStateRoot(root);
+  await writeJson(supportPath(root), { promptVersion, verdicts: Object.fromEntries(verdicts) });
 }
 
 /** Git HEAD of each repository at the end of the last run, used to diff rule files since then. */

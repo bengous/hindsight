@@ -1,4 +1,5 @@
 import type { Thresholds } from "./curate/curator.ts";
+import type { SupportWork } from "./curate/curator.ts";
 import type { CuratorGroup, Dropped, HistoryEntry, RuleSource } from "./curate/groups.ts";
 import type { Effort, ModelAlias, ModelRunner } from "./model/claude.ts";
 import type { ClusterThresholds } from "./signals/index.ts";
@@ -30,6 +31,7 @@ import {
 import { planGroups } from "./curate/groups.ts";
 import { sha1 } from "./curate/ids.ts";
 import { seedDigest } from "./curate/seeds.ts";
+import { checkSupport, SUPPORT_PROMPT_VERSION, supportKey } from "./curate/support.ts";
 import { Budget, budgetedCall } from "./model/budget.ts";
 import { claudeRunner } from "./model/claude.ts";
 import { decode } from "./model/codec.ts";
@@ -46,12 +48,14 @@ import {
   readCuration,
   readExtraction,
   readHeads,
+  readSupportVerdicts,
   runDir,
   writeCuration,
   writeExtraction,
   writeHeads,
   writeRunJson,
   writeRunLines,
+  writeSupportVerdicts,
 } from "./state/index.ts";
 import { collect, volumes } from "./transcripts/index.ts";
 
@@ -131,6 +135,13 @@ export const DEFAULT_EXTRACT_MODEL: StageModel = {
   timeoutMs: 5 * 60_000,
 };
 
+export const DEFAULT_SUPPORT_MODEL: StageModel = {
+  model: "haiku",
+  effort: "low",
+  maxBudgetUsd: 0.2,
+  timeoutMs: 3 * 60_000,
+};
+
 export const DEFAULT_CURATE_MODEL: StageModel = {
   model: "opus",
   effort: "high",
@@ -148,6 +159,8 @@ export type RunOptions = ScanOptions & {
   readonly maxSessions?: number;
   readonly extract?: Partial<StageModel>;
   readonly curate?: Partial<StageModel>;
+  /** The yes/no check that each cited message supports its proposal's lesson. */
+  readonly support?: Partial<StageModel>;
   /** Old auto-memory notes to feed as `mem:<path>` evidence. */
   readonly seeds?: readonly string[];
   /** Repository the seed notes belong to. Required with `seeds`. */
@@ -392,6 +405,7 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
   const budget = new Budget(options.budgetUsd ?? DEFAULT_BUDGET_USD);
   const extractModel = { ...DEFAULT_EXTRACT_MODEL, ...options.extract };
   const curateModel = { ...DEFAULT_CURATE_MODEL, ...options.curate };
+  const supportModel = { ...DEFAULT_SUPPORT_MODEL, ...options.support };
   const failures: BatchFailure[] = [];
   const summary = (status: RunStatus, counts: Readonly<Record<string, number>>): RunSummary => ({
     runId,
@@ -502,6 +516,32 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
       thresholds: options.thresholds ?? DEFAULT_THRESHOLDS,
       knownFingerprints: new Set(history.map((entry) => entry.fingerprint)),
       ruleAppliesTo: deps.ruleAppliesTo,
+      unsupported: new Set<string>(),
+    };
+    const supportVersion = `${SUPPORT_PROMPT_VERSION}:${supportModel.model}`;
+    const verdicts = new Map(await readSupportVerdicts(stateRoot, supportVersion));
+    const messages = new Map<string, HumanMessage>(
+      digests.flatMap((digest) => digest.messages.map((message) => [message.evidenceId, message] as const)),
+    );
+    const judge = async (work: readonly SupportWork[]): Promise<void> => {
+      for (const { lesson, members } of work) {
+        const open = members.flatMap((member) => {
+          const message = messages.get(member.evidenceId);
+          return message === undefined || verdicts.has(supportKey(lesson, member))
+            ? []
+            : [{ ...member, text: evidenceText(message) }];
+        });
+        if (open.length === 0) {
+          continue;
+        }
+        try {
+          for (const [key, supports] of await checkSupport(lesson, open, deps.runner, budget, supportModel)) {
+            verdicts.set(key, supports);
+          }
+        } catch (error) {
+          failures.push(failureOf("support", lesson, error));
+        }
+      }
     };
     for (const group of plan.groups) {
       try {
@@ -518,7 +558,17 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
           output = result.output;
           await writeCuration(stateRoot, { groupKey: group.key, inputHash, output, at: deps.now().toISOString() });
         }
-        const gated = gateCuration(group, output, context);
+        const first = gateCuration(group, output, context);
+        await judge(first.supportWork);
+        const unsupported = new Set(
+          first.supportWork.flatMap(({ lesson, members }) =>
+            members.flatMap((member) => {
+              const key = supportKey(lesson, member);
+              return verdicts.get(key) === false ? [key] : [];
+            }),
+          ),
+        );
+        const gated = unsupported.size === 0 ? first : gateCuration(group, output, { ...context, unsupported });
         proposals.push(...gated.proposals);
         dropped.push(...gated.dropped);
       } catch (error) {
@@ -526,6 +576,7 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
       }
     }
 
+    await writeSupportVerdicts(stateRoot, supportVersion, verdicts);
     const ordered = proposals.toSorted(
       (a, b) =>
         CONFIDENCE_ORDER[a.confidence] - CONFIDENCE_ORDER[b.confidence] ||
@@ -551,6 +602,7 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
     await writeRunJson(stateRoot, runId, "cost.json", {
       extract: budget.usage("extract"),
       curate: budget.usage("curate"),
+      support: budget.usage("support"),
       total: budget.usage(),
       budgetUsd: budget.capUsd,
     });

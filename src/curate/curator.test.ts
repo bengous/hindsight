@@ -17,6 +17,7 @@ import { ruleAppliesTo } from "../rules/glob.ts";
 import { curatorOutput, curatorPrompt, DEFAULT_THRESHOLDS, gateCuration } from "./curator.ts";
 import { EvidenceError } from "./extract.ts";
 import { GLOBAL_GROUP, planGroups } from "./groups.ts";
+import { supportKey } from "./support.ts";
 
 const factoryLesson = "Build orders with makeOrder() in tests.";
 const digests = [
@@ -97,6 +98,7 @@ const context: GateContext = {
   thresholds: DEFAULT_THRESHOLDS,
   knownFingerprints: new Set(),
   ruleAppliesTo,
+  unsupported: new Set(),
 };
 
 type Candidate = CuratorOutput["candidates"][number];
@@ -513,6 +515,38 @@ describe("gateCuration", () => {
       "Run bun test before committing.",
     ]);
     expect(dropped).toEqual([{ reason: "duplicate-evidence", detail: factoryLesson }]);
+  });
+
+  test("lists the members each item-based proposal rests on, for the support gate", () => {
+    const toolConfig = candidate({
+      kind: "tool-config",
+      lesson: "Allow rm -rf in the scratchpad.",
+      memberEvidenceIds: [],
+      errorSignature: signature,
+      op: null,
+    });
+    const { supportWork } = gate(repo, [candidate({}), toolConfig]);
+    expect(supportWork).toEqual([
+      {
+        lesson: factoryLesson,
+        members: [
+          { evidenceId: "s1:u1", quote: "makeOrder()" },
+          { evidenceId: "s2:u1", quote: "makeOrder()" },
+          { evidenceId: "s3:u1", quote: "makeOrder()" },
+        ],
+      },
+    ]);
+  });
+
+  test("a member judged unsupported leaves, and a proposal left below threshold is dropped as unsupported", () => {
+    const unsupported = new Set([supportKey(factoryLesson, { evidenceId: "s3:u1", quote: "makeOrder()" })]);
+    const { proposals, dropped, supportWork } = gate(repo, [candidate({})], { unsupported });
+    expect(proposals).toEqual([]);
+    expect(dropped.map((entry) => entry.reason)).toEqual(["unsupported"]);
+    expect(supportWork).toEqual([]);
+    const lenient = gate(repo, [candidate({})], { unsupported, thresholds: { minSessions: 2, minDays: 2 } });
+    expect(lenient.proposals[0]?.prevalence.sessions).toBe(2);
+    expect(lenient.proposals[0]?.evidence.map((entry) => entry.evidenceId)).toEqual(["s2:u1", "s1:u1"]);
   });
 
   test("suppresses a fingerprint already in the ledger and duplicates within the run", () => {

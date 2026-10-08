@@ -1,6 +1,7 @@
 import type { Infer } from "../model/codec.ts";
 import type {
   DeltaOp,
+  EvidenceId,
   EvidenceItem,
   FindingKind,
   IsoTimestamp,
@@ -18,6 +19,7 @@ import { EvidenceError } from "./extract.ts";
 import { GLOBAL_GROUP } from "./groups.ts";
 import { displayPath, expandHome, normalizeLesson, sha1 } from "./ids.ts";
 import { countOccurrences } from "./prevalence.ts";
+import { supportKey } from "./support.ts";
 
 const KINDS = ["missing", "ignored", "misplaced", "conflict", "watch", "tool-config", "stale"] as const;
 
@@ -164,11 +166,20 @@ export type GateContext = {
   readonly knownFingerprints: ReadonlySet<string>;
   /** Whether `file` loads for `absPath` in a session whose project is `projectRoot`. */
   readonly ruleAppliesTo: (file: RuleFile, absPath: string, projectRoot: string | null) => boolean;
+  /** `supportKey`s of members the support check judged unrelated to their lesson; they leave before counting. */
+  readonly unsupported: ReadonlySet<string>;
+};
+
+/** The members one item-based proposal rests on, to be checked by the support gate. */
+export type SupportWork = {
+  readonly lesson: string;
+  readonly members: readonly { readonly evidenceId: EvidenceId; readonly quote: string }[];
 };
 
 export type GateResult = {
   readonly proposals: readonly Proposal[];
   readonly dropped: readonly Dropped[];
+  readonly supportWork: readonly SupportWork[];
 };
 
 type Lookup = {
@@ -478,7 +489,12 @@ function structuralDrop(candidate: Candidate, members: readonly ItemRef[]): Drop
 
 const CONFIDENCE_RANK: Readonly<Record<Proposal["confidence"], number>> = { high: 0, medium: 1, low: 2 };
 
-type Accepted = { readonly proposal: Proposal; readonly members: ReadonlySet<string>; readonly index: number };
+type Accepted = {
+  readonly proposal: Proposal;
+  readonly refs: readonly ItemRef[];
+  readonly members: ReadonlySet<string>;
+  readonly index: number;
+};
 
 function sharesEvidence(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   const smaller = Math.min(a.size, b.size);
@@ -486,7 +502,7 @@ function sharesEvidence(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean
 }
 
 /** Two cards resting mostly on the same messages tell one story; the more confident, then more prevalent, stays. */
-function withoutDuplicateEvidence(accepted: readonly Accepted[], dropped: Dropped[]): readonly Proposal[] {
+function withoutDuplicateEvidence(accepted: readonly Accepted[], dropped: Dropped[]): readonly Accepted[] {
   const ranked = accepted.toSorted(
     (a, b) =>
       CONFIDENCE_RANK[a.proposal.confidence] - CONFIDENCE_RANK[b.proposal.confidence] ||
@@ -501,7 +517,7 @@ function withoutDuplicateEvidence(accepted: readonly Accepted[], dropped: Droppe
       kept.push(entry);
     }
   }
-  return kept.toSorted((a, b) => a.index - b.index).map((entry) => entry.proposal);
+  return kept.toSorted((a, b) => a.index - b.index);
 }
 
 /** Turns the curator's candidates into proposals; every rule here is code, the model only proposed. */
@@ -514,10 +530,16 @@ export function gateCuration(group: CuratorGroup, output: CuratorOutput, context
   const dropped: Dropped[] = [];
   const seen = new Set<string>();
   for (const candidate of output.candidates) {
-    const members = [...new Set(candidate.memberEvidenceIds)].flatMap((id) => {
+    const citedMembers = [...new Set(candidate.memberEvidenceIds)].flatMap((id) => {
       const ref = lookup.items.get(id);
       return ref === undefined ? [] : [ref];
     });
+    const members = citedMembers.filter((ref) => !context.unsupported.has(supportKey(candidate.lesson, ref.item)));
+    const unsupportedCount = citedMembers.length - members.length;
+    if (unsupportedCount > 0 && members.length === 0) {
+      dropped.push({ reason: "unsupported", detail: candidate.lesson });
+      continue;
+    }
     const structural = structuralDrop(candidate, members);
     if (structural !== null) {
       dropped.push(structural);
@@ -541,7 +563,7 @@ export function gateCuration(group: CuratorGroup, output: CuratorOutput, context
     const verdict = thresholdVerdict(judged, members, counted, context.thresholds);
     if (verdict !== "pass") {
       dropped.push({
-        reason: verdict,
+        reason: unsupportedCount > 0 ? "unsupported" : verdict,
         detail: `${candidate.lesson} (${counted.prevalence.sessions} sessions, ${counted.prevalence.days} days)`,
       });
       continue;
@@ -600,7 +622,19 @@ export function gateCuration(group: CuratorGroup, output: CuratorOutput, context
       evidence: evidenceOf(members, cluster),
       confidence: judged.confidence,
     };
-    accepted.push({ proposal, members: new Set(members.map((ref) => ref.item.evidenceId)), index: accepted.length });
+    accepted.push({
+      proposal,
+      refs: members,
+      members: new Set(members.map((ref) => ref.item.evidenceId)),
+      index: accepted.length,
+    });
   }
-  return { proposals: withoutDuplicateEvidence(accepted, dropped), dropped };
+  const kept = withoutDuplicateEvidence(accepted, dropped);
+  const supportWork = kept
+    .filter((entry) => entry.refs.length > 0)
+    .map((entry) => ({
+      lesson: entry.proposal.lesson,
+      members: entry.refs.map((ref) => ({ evidenceId: ref.item.evidenceId, quote: ref.item.quote })),
+    }));
+  return { proposals: kept.map((entry) => entry.proposal), dropped, supportWork };
 }

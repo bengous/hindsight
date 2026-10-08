@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { array, decode, DecodeError, nullable, object, oneOf, string } from "./codec.ts";
+import { array, boolean, decode, DecodeError, nullable, object, oneOf, string } from "./codec.ts";
 
 const item = object({
   id: string({ minLength: 1 }),
@@ -40,6 +40,11 @@ describe("codec", () => {
         expect(error instanceof DecodeError && error.path).toBe(path);
       }
     }
+  });
+
+  test("decodes booleans strictly", () => {
+    expect(decode(boolean(), false)).toBe(false);
+    expect(() => decode(boolean(), "true")).toThrow("a boolean");
   });
 
   test("enforces maxItems", () => {

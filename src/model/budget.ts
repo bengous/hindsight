@@ -2,7 +2,7 @@ import type { ModelUsage } from "../types.ts";
 import type { CallUsage, ModelRequest, ModelResult, ModelRunner } from "./claude.ts";
 import { ModelError } from "./claude.ts";
 
-export type Stage = "extract" | "curate";
+export type Stage = "extract" | "curate" | "support";
 
 export class BudgetError extends Error {
   constructor(
