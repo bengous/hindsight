@@ -492,6 +492,30 @@ function structuralDrop(candidate: Candidate, members: readonly ItemRef[]): Drop
   return members.length === 0 ? { reason: "no-evidence", detail: candidate.lesson } : null;
 }
 
+/**
+ * Whether any candidate of this group could pass the gates, decided before paying for the curator call. It errs on
+ * the side of calling: a steering marker anywhere stands in for a conflict, which only the model can recognise.
+ */
+export function curationCanPass(group: CuratorGroup, thresholds: Thresholds): boolean {
+  if (group.clusters.length > 0 || group.stale.length > 0) {
+    return true;
+  }
+  if (group.items.some((ref) => ref.markers.some((marker) => STEERING_MARKERS.has(marker)))) {
+    return true;
+  }
+  const explicitSources = new Set(
+    group.items.filter((ref) => ref.item.kind === "explicit").map((ref) => ref.sessionId),
+  );
+  if (explicitSources.size >= 2) {
+    return true;
+  }
+  const { prevalence } = countOccurrences(
+    group.items.map((ref) => ({ sessionId: ref.sessionId, repoRoot: ref.repoRoot, timestamp: ref.timestamp })),
+    "",
+  );
+  return prevalence.sessions >= thresholds.minSessions && prevalence.days >= thresholds.minDays;
+}
+
 const ONE_REPO_NOTE = "Preuves d'un seul dépôt : la règle globale est peut-être trop large.";
 
 /**

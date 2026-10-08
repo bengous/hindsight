@@ -20,7 +20,7 @@ import { realpathSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { curatorOutput, curatorPrompt, DEFAULT_THRESHOLDS, gateCuration } from "./curate/curator.ts";
+import { curationCanPass, curatorOutput, curatorPrompt, DEFAULT_THRESHOLDS, gateCuration } from "./curate/curator.ts";
 import {
   DEFAULT_EXTRACTION_LIMITS,
   EXTRACTION_DROPS,
@@ -544,6 +544,10 @@ export async function run(options: RunOptions = {}, deps: PipelineDeps = default
       }
     };
     for (const group of plan.groups) {
+      if (!curationCanPass(group, context.thresholds)) {
+        dropped.push({ reason: "group-skipped", detail: group.key });
+        continue;
+      }
       try {
         const inputHash = curationHash(group, curateModel);
         const stored = await readCuration(stateRoot, group.key, inputHash);

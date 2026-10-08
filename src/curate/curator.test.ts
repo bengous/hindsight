@@ -14,7 +14,7 @@ import {
 } from "../../fixtures/curate/world.ts";
 import { decode, DecodeError } from "../model/codec.ts";
 import { ruleAppliesTo } from "../rules/glob.ts";
-import { curatorOutput, curatorPrompt, DEFAULT_THRESHOLDS, gateCuration } from "./curator.ts";
+import { curationCanPass, curatorOutput, curatorPrompt, DEFAULT_THRESHOLDS, gateCuration } from "./curator.ts";
 import { EvidenceError } from "./extract.ts";
 import { GLOBAL_GROUP, planGroups } from "./groups.ts";
 import { supportKey } from "./support.ts";
@@ -226,6 +226,49 @@ describe("planGroups", () => {
     expect((data.items[0] as unknown as { repo: string }).repo).toBe("~/Work/atelier");
     expect(data.ruleFiles.flatMap((file) => file.bullets.map((bullet) => bullet.id))).toContain("AGENTS.md#bb000001");
     expect(home.length).toBeGreaterThan(0);
+  });
+});
+
+describe("curationCanPass", () => {
+  const base = group(repo);
+  const only = (ids: readonly string[]) => ({
+    ...base,
+    clusters: [],
+    stale: [],
+    items: base.items.filter((ref) => ids.includes(ref.item.evidenceId)),
+  });
+
+  test("a group of a single unmarked inferred item cannot pass and is skipped", () => {
+    expect(curationCanPass(only(["s6:u1"]), DEFAULT_THRESHOLDS)).toBe(false);
+  });
+
+  test("inferred items spanning enough sessions and days, an error cluster or a stale finding can pass", () => {
+    expect(curationCanPass(only(["s1:u1", "s2:u1", "s3:u1"]), DEFAULT_THRESHOLDS)).toBe(true);
+    expect(curationCanPass({ ...only([]), clusters: base.clusters }, DEFAULT_THRESHOLDS)).toBe(true);
+    const finding = {
+      id: "f1",
+      sourcePath: docsRule.sourcePath,
+      repoRoot: repo,
+      bulletId: null,
+      reason: "dead-glob",
+      detail: "docs/**",
+    } as const;
+    expect(curationCanPass({ ...only([]), stale: [finding] }, DEFAULT_THRESHOLDS)).toBe(true);
+  });
+
+  test("a message carrying an instruction or correction marker, or explicit items from two sessions, can pass", () => {
+    const marked = only(["s6:u1"]);
+    const withMarker = {
+      ...marked,
+      items: marked.items.map((ref) => ({ ...ref, markers: ["correction_strong" as const] })),
+    };
+    expect(curationCanPass(withMarker, DEFAULT_THRESHOLDS)).toBe(true);
+    const twoExplicit = only(["s6:u1", "s7:u1"]);
+    const explicit = {
+      ...twoExplicit,
+      items: twoExplicit.items.map((ref) => ({ ...ref, item: { ...ref.item, kind: "explicit" as const } })),
+    };
+    expect(curationCanPass(explicit, DEFAULT_THRESHOLDS)).toBe(true);
   });
 });
 

@@ -234,6 +234,22 @@ describe("run", () => {
     expect(second).toEqual([]);
   });
 
+  test("a group where nothing could pass the gates is skipped without a curator call", async () => {
+    const calls: ScriptedCall[] = [];
+    const report = await run(
+      { stateRoot, projectsDir },
+      deps(calls, script(), 0.01, (result) => ({
+        ...result,
+        digests: result.digests
+          .filter((digest) => digest.sessionId === "a1")
+          .map((digest) => ({ ...digest, messages: digest.messages.map((message) => ({ ...message, markers: [] })) })),
+      })),
+    );
+    expect(calls.filter((call) => call.label.startsWith("curate"))).toEqual([]);
+    expect(report.dropped).toMatchObject({ "group-skipped": 1 });
+    expect(report.usage.calls).toBe(1);
+  });
+
   test("a re-run reuses the caches and proposes nothing new", async () => {
     const first: ScriptedCall[] = [];
     await run({ stateRoot, projectsDir }, deps(first));
