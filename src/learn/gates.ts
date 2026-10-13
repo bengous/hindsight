@@ -1,5 +1,6 @@
+import type { Change, Evidence, Prevalence } from "../domain/proposal.ts";
 import type { RuleFile, RuleScope } from "../rules/types.ts";
-import type { Change, Evidence, Prevalence, ProposalInsert } from "../store/queries.ts";
+import type { ProposalInsert } from "../store/queries.ts";
 import type { LearnGroup, NoteView } from "./prompt.ts";
 import type { Candidate, LearnOutput } from "./schema.ts";
 

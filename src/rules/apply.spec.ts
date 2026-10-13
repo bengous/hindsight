@@ -1,5 +1,6 @@
 import type { TempRepo } from "../../fixtures/rules/repo.ts";
-import type { ApplyRequest, TextEdit } from "./apply.ts";
+import type { TextEdit } from "../domain/diff.ts";
+import type { ApplyRequest } from "./apply.ts";
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";

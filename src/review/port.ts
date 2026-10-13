@@ -1,18 +1,19 @@
 import type { HindsightConfig } from "../domain/config.ts";
-import type { ProposalState } from "../domain/proposal.ts";
-import type { ApplyResult, TextEdit } from "../rules/apply.ts";
+import type { TextEdit } from "../domain/diff.ts";
+import type { Change, Evidence, Prevalence, ProposalState } from "../domain/proposal.ts";
+import type { ApplyResult } from "../rules/apply.ts";
 import type { StoreError, StoreService, SyncStore } from "../store/db.ts";
-import type { Change, Evidence, Prevalence, ProposalRow } from "../store/queries.ts";
+import type { ProposalRow } from "../store/queries.ts";
 
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import { existsSync, readFileSync } from "node:fs";
 
 import { nextProposalState } from "../domain/proposal.ts";
 import { redactSecrets } from "../domain/redact.ts";
-import { ChangeSchema } from "../learn/schema.ts";
 import { newId } from "../platform/ids.ts";
 import { applyChange, editedText } from "../rules/apply.ts";
 import { Store } from "../store/db.ts";
+import { decodeChange, decodeEvidence, decodePrevalence, decodeState } from "../store/proposal.ts";
 
 /** One Proposal as the Review shows it; the surface (pane today, a page later) only draws it. */
 export type ReviewItem = {
@@ -65,33 +66,6 @@ export type PreparedHandoff = {
 export type ReadFile = (path: string) => string | null;
 
 export const readFileOrNull: ReadFile = (path) => (existsSync(path) ? readFileSync(path, "utf8") : null);
-
-const EvidenceSchema = Schema.Struct({
-  evidenceId: Schema.String,
-  kind: Schema.Literals(["quote", "observation"]),
-  at: Schema.String,
-  sessionId: Schema.String,
-  text: Schema.String,
-  tool: Schema.NullOr(Schema.String),
-});
-
-const PrevalenceSchema = Schema.Struct({
-  sessions: Schema.Int,
-  days: Schema.Int,
-  repos: Schema.Int,
-  firstAt: Schema.String,
-  lastAt: Schema.String,
-});
-
-const decodeState = Schema.decodeUnknownSync(
-  Schema.Literals(["pending", "accepted", "handed_off", "rejected", "superseded", "expired"]),
-);
-
-const decodeChange = Schema.decodeSync(Schema.fromJsonString(ChangeSchema));
-
-const decodeEvidence = Schema.decodeSync(Schema.fromJsonString(Schema.Array(EvidenceSchema)));
-
-const decodePrevalence = Schema.decodeSync(Schema.fromJsonString(PrevalenceSchema));
 
 export function toReviewItem(row: ProposalRow, db: SyncStore): ReviewItem {
   const evidence = decodeEvidence(row.evidence_json).map((item): ReviewEvidence => {

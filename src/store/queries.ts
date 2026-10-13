@@ -1,4 +1,4 @@
-import type { Verdict } from "../domain/proposal.ts";
+import type { Change, Evidence, Prevalence, Verdict } from "../domain/proposal.ts";
 import type { SyncStore } from "./db.ts";
 
 export type DebriefStatus = "started" | "recorded" | "aborted" | "failed";
@@ -31,27 +31,6 @@ export type NoteRow = {
   readonly lesson: string;
   readonly body_json: string;
   readonly loaded_rules_json: string;
-};
-
-export type Change =
-  | { readonly kind: "edit"; readonly edits: ReadonlyArray<{ readonly oldText: string; readonly newText: string }> }
-  | { readonly kind: "description"; readonly text: string };
-
-export type Evidence = {
-  readonly evidenceId: string;
-  readonly kind: "quote" | "observation";
-  readonly at: string;
-  readonly sessionId: string;
-  readonly text: string;
-  readonly tool: string | null;
-};
-
-export type Prevalence = {
-  readonly sessions: number;
-  readonly days: number;
-  readonly repos: number;
-  readonly firstAt: string;
-  readonly lastAt: string;
 };
 
 export type ProposalInsert = {

@@ -3,13 +3,7 @@ import type { JsonSchema } from "effect";
 import { Schema } from "effect";
 
 import { VERDICTS } from "../domain/proposal.ts";
-
-const Edit = Schema.Struct({ oldText: Schema.String, newText: Schema.String });
-
-export const ChangeSchema = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("edit"), edits: Schema.Array(Edit) }),
-  Schema.Struct({ kind: Schema.Literal("description"), text: Schema.String }),
-]);
+import { ChangeSchema } from "../store/proposal.ts";
 
 export const CandidateSchema = Schema.Struct({
   verdict: Schema.Literals(VERDICTS),

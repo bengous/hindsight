@@ -1,7 +1,7 @@
 import type { HindsightConfig } from "../domain/config.ts";
 import type { DebriefNotes, ObservationNote, StaleRuleNote, SteerNote } from "../domain/debrief.ts";
+import type { Evidence } from "../domain/proposal.ts";
 import type { SyncStore } from "../store/db.ts";
-import type { Evidence } from "../store/queries.ts";
 import type { HumanEvent, SessionRecord, ToolEvent } from "../transcripts/session.ts";
 
 import { existsSync, readFileSync } from "node:fs";

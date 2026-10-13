@@ -1,4 +1,15 @@
+import type { TextEdit } from "./diff.ts";
+
 export type ProposalState = "pending" | "accepted" | "handed_off" | "rejected" | "superseded" | "expired";
+
+export const PROPOSAL_STATES: readonly ProposalState[] = [
+  "pending",
+  "accepted",
+  "handed_off",
+  "rejected",
+  "superseded",
+  "expired",
+];
 
 export type ProposalEvent = "accept" | "handoff" | "reject" | "supersede" | "expire";
 
@@ -18,3 +29,24 @@ export function nextProposalState(state: ProposalState, event: ProposalEvent): P
 export type Verdict = "missing" | "ignored" | "misplaced" | "conflict" | "unclear" | "hold";
 
 export const VERDICTS: readonly Verdict[] = ["missing", "ignored", "misplaced", "conflict", "unclear", "hold"];
+
+export type Change =
+  | { readonly kind: "edit"; readonly edits: readonly TextEdit[] }
+  | { readonly kind: "description"; readonly text: string };
+
+export type Evidence = {
+  readonly evidenceId: string;
+  readonly kind: "quote" | "observation";
+  readonly at: string;
+  readonly sessionId: string;
+  readonly text: string;
+  readonly tool: string | null;
+};
+
+export type Prevalence = {
+  readonly sessions: number;
+  readonly days: number;
+  readonly repos: number;
+  readonly firstAt: string;
+  readonly lastAt: string;
+};
