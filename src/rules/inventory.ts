@@ -36,9 +36,11 @@ export function isInside(root: string, path: string): boolean {
   return !rel.startsWith("..") && !isAbsolute(rel);
 }
 
-function idPrefixFor(path: string, repoRoot: string | null, home: string): string {
-  const posix = (value: string): string => value.split(sep).join("/");
+function posix(value: string): string {
+  return value.split(sep).join("/");
+}
 
+function idPrefixFor(path: string, repoRoot: string | null, home: string): string {
   if (repoRoot !== null && isInside(repoRoot, path)) {
     return posix(relative(repoRoot, path));
   }
@@ -46,12 +48,16 @@ function idPrefixFor(path: string, repoRoot: string | null, home: string): strin
   return isInside(home, path) ? `~/${posix(relative(home, path))}` : posix(path);
 }
 
+function importPath(target: string, importer: string, home: string): string {
+  if (target.startsWith("~/")) {
+    return join(home, target.slice(2));
+  }
+
+  return isAbsolute(target) ? target : join(dirname(importer), target);
+}
+
 function resolveImport(target: string, importer: string, home: string): string | null {
-  const path = target.startsWith("~/")
-    ? join(home, target.slice(2))
-    : isAbsolute(target)
-      ? target
-      : join(dirname(importer), target);
+  const path = importPath(target, importer, home);
 
   return isFile(path) ? path : null;
 }
@@ -89,14 +95,20 @@ function repoCandidates(repoRoot: string, files: readonly string[]): readonly Ca
   return candidates.filter((candidate) => isFile(candidate.loadedPath));
 }
 
+function markdownUnder(dir: string, pattern: string): readonly string[] {
+  return existsSync(dir)
+    ? [...new Bun.Glob(pattern).scanSync({ cwd: dir, followSymlinks: true })].map((file) => join(dir, file))
+    : [];
+}
+
 function globalCandidates(home: string): readonly Candidate[] {
   const claudeDir = join(home, ".claude");
-  const roots = ["CLAUDE.md", "AGENTS.md"].map((name) => join(claudeDir, name)).filter(isFile);
 
-  const markdownUnder = (dir: string, pattern: string): readonly string[] =>
-    existsSync(dir)
-      ? [...new Bun.Glob(pattern).scanSync({ cwd: dir, followSymlinks: true })].map((file) => join(dir, file))
-      : [];
+  const roots = ["CLAUDE.md", "AGENTS.md"].flatMap((name) => {
+    const path = join(claudeDir, name);
+
+    return isFile(path) ? [path] : [];
+  });
 
   const rules = markdownUnder(join(claudeDir, "rules"), "**/*.md");
   const styles = markdownUnder(join(claudeDir, "output-styles"), "*.md");
@@ -109,11 +121,16 @@ async function withImports(candidates: readonly Candidate[], home: string): Prom
   const seen = new Set(candidates.map((candidate) => realpathSync(candidate.loadedPath)));
   let frontier: readonly Candidate[] = candidates;
 
-  for (let hop = 0; hop < MAX_IMPORT_HOPS && frontier.length > 0; hop++) {
+  for (let hop = 0; hop < MAX_IMPORT_HOPS && frontier.length > 0; hop += 1) {
     const next: Candidate[] = [];
 
-    for (const importer of frontier) {
-      for (const target of importTargets(await Bun.file(importer.loadedPath).text())) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- each hop reads the files the previous hop imported: the hops cannot run at once.
+    const importers = await Promise.all(
+      frontier.map(async (importer) => ({ importer, text: await Bun.file(importer.loadedPath).text() })),
+    );
+
+    for (const { importer, text } of importers) {
+      for (const target of importTargets(text)) {
         const loadedPath = resolveImport(target, importer.loadedPath, home);
 
         if (loadedPath === null || seen.has(realpathSync(loadedPath))) {
@@ -177,16 +194,23 @@ export async function inventory(
     files.push(file);
   };
 
-  for (const candidate of await withImports(globalCandidates(env.home), env.home)) {
-    add(await toRuleFile(candidate, null, env));
-  }
+  const globalFiles = await Promise.all(
+    (await withImports(globalCandidates(env.home), env.home)).map(async (candidate) =>
+      toRuleFile(candidate, null, env),
+    ),
+  );
 
-  for (const root of repoRoots) {
-    const repoRoot = await checkoutRoot(root);
+  const repoFiles = await Promise.all(
+    repoRoots.map(async (root) => {
+      const repoRoot = await checkoutRoot(root);
+      const candidates = await withImports(repoCandidates(repoRoot, await listFiles(repoRoot)), env.home);
 
-    for (const candidate of await withImports(repoCandidates(repoRoot, await listFiles(repoRoot)), env.home)) {
-      add(await toRuleFile(candidate, repoRoot, env));
-    }
+      return Promise.all(candidates.map(async (candidate) => toRuleFile(candidate, repoRoot, env)));
+    }),
+  );
+
+  for (const file of [...globalFiles, ...repoFiles.flat()]) {
+    add(file);
   }
 
   return files;

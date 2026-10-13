@@ -1,5 +1,7 @@
 import type { RuleBullet } from "./types.ts";
 
+import { Predicate, Schema } from "effect";
+
 import { splitTopLevel } from "./glob.ts";
 
 export type BodyLine = {
@@ -14,13 +16,15 @@ export type CodeSpan = {
   readonly code: string;
 };
 
-const listItem = /^(\s*)(?:[-*+]|\d+[.)])\s+\S/;
+const LIST_ITEM = /^(\s*)(?:[-*+]|\d+[.)])\s+\S/;
 
-const listMarker = /^\s*(?:[-*+]|\d+[.)])\s+/;
+const LIST_MARKER = /^\s*(?:[-*+]|\d+[.)])\s+/;
 
-const fence = /^\s*(```|~~~)/;
+const FENCE = /^\s*(```|~~~)/;
 
-const inlineCode = /(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g;
+const INLINE_CODE = /(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g;
+
+const hasPathsField = Schema.is(Schema.Struct({ paths: Schema.Union([Schema.String, Schema.Array(Schema.Unknown)]) }));
 
 function frontmatterEnd(lines: readonly string[]): number {
   if (lines[0]?.trim() !== "---") {
@@ -55,17 +59,12 @@ export function frontmatterPaths(text: string): readonly string[] | null {
     return null;
   }
 
-  if (typeof parsed !== "object" || parsed === null || !("paths" in parsed)) {
+  if (!hasPathsField(parsed)) {
     return null;
   }
 
-  const value: unknown = parsed.paths;
-
-  const globs = Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : typeof value === "string"
-      ? splitTopLevel(value)
-      : [];
+  const { paths } = parsed;
+  const globs = Predicate.isString(paths) ? splitTopLevel(paths) : paths.filter(Predicate.isString);
 
   const cleaned = globs.map((glob) => glob.trim()).filter((glob) => glob !== "");
 
@@ -77,22 +76,23 @@ export function bodyLines(text: string): readonly BodyLine[] {
   const start = frontmatterEnd(lines);
   const body: BodyLine[] = [];
   let open: string | null = null;
-  lines.forEach((content, index) => {
+
+  for (const [index, content] of lines.entries()) {
     if (index < start) {
-      return;
+      continue;
     }
 
-    const marker = fence.exec(content)?.[1] ?? null;
+    const marker = FENCE.exec(content)?.[1] ?? null;
 
     if (marker !== null && (open === null || open === marker)) {
       body.push({ line: index + 1, text: content, fenced: true });
       open = open === null ? marker : null;
 
-      return;
+      continue;
     }
 
     body.push({ line: index + 1, text: content, fenced: open !== null });
-  });
+  }
 
   return body;
 }
@@ -101,12 +101,12 @@ export function codeSpans(text: string): readonly CodeSpan[] {
   return bodyLines(text)
     .filter((line) => !line.fenced)
     .flatMap((line) =>
-      [...line.text.matchAll(inlineCode)].map((match) => ({ line: line.line, code: (match[2] ?? "").trim() })),
+      [...line.text.matchAll(INLINE_CODE)].map((match) => ({ line: line.line, code: (match[2] ?? "").trim() })),
     );
 }
 
 export function normalizeBullet(text: string): string {
-  return text.replace(listMarker, "").replaceAll(/\s+/g, " ").trim();
+  return text.replace(LIST_MARKER, "").replaceAll(/\s+/g, " ").trim();
 }
 
 function shortSha1(text: string): string {
@@ -119,9 +119,9 @@ export function ruleBullets(text: string, idPrefix: string): readonly RuleBullet
   let current: { line: number; lines: string[]; indent: number } | null = null;
 
   for (const line of bodyLines(text)) {
-    const item = line.fenced ? null : listItem.exec(line.text);
+    const item = line.fenced ? null : LIST_ITEM.exec(line.text);
 
-    if (item) {
+    if (item !== null) {
       current = { line: line.line, lines: [line.text], indent: item[1]?.length ?? 0 };
       bullets.push(current);
       continue;
@@ -158,7 +158,7 @@ export function importTargets(text: string): readonly string[] {
   return bodyLines(text)
     .filter((line) => !line.fenced)
     .flatMap((line) => {
-      const prose = line.text.replace(inlineCode, " ");
+      const prose = line.text.replace(INLINE_CODE, " ");
 
       return [...prose.matchAll(/(?:^|\s)@((?:\\ |[^\s])+)/g)].map((match) =>
         (match[1] ?? "").replaceAll(String.raw`\ `, " ").replace(/[.,;:!?)]+$/, ""),

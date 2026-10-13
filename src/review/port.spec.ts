@@ -2,7 +2,7 @@ import type { StoreService } from "../store/db.ts";
 import type { ProposalInsert } from "../store/queries.ts";
 
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -24,8 +24,8 @@ afterAll(() => repo.cleanup());
 
 let store: StoreService;
 
-const provide = async <A, E>(effect: Effect.Effect<A, E, Store>) =>
-  Effect.runPromise(effect.pipe(Effect.provide(Layer.succeed(Store, store))));
+const provide = async <A, E>(effect: Effect.Effect<A, E, Store>): Promise<A> =>
+  Effect.runPromise(effect.pipe(Effect.provideService(Store, store)));
 
 const proposal = (id: string, overrides: Partial<ProposalInsert> = {}): ProposalInsert => ({
   id,
@@ -183,7 +183,8 @@ describe("decideProposal", () => {
       }),
     );
     const outcome = await provide(decideProposal("leak", { kind: "accept", edits: null }, NOW));
-    expect(outcome).toMatchObject({ kind: "refused", reason: expect.stringContaining("excerpt-in-message") });
+    expect(outcome.kind).toBe("refused");
+    expect(outcome.kind === "refused" ? outcome.reason : "").toContain("excerpt-in-message");
     expect(await Effect.runPromise(store.all("SELECT * FROM decisions"))).toHaveLength(0);
     expect(
       (await Effect.runPromise(store.all<{ state: string }>("SELECT state FROM proposals WHERE id = 'leak'")))[0]
@@ -230,10 +231,9 @@ describe("decideProposal", () => {
     expect(await provide(decideProposal("p4", { kind: "accept", edits: null }, NOW))).toMatchObject({
       kind: "refused",
     });
-    expect(await provide(decideProposal("p5", { kind: "accept", edits: null }, NOW))).toMatchObject({
-      kind: "refused",
-      reason: expect.stringContaining("old-text-missing"),
-    });
+    const stale = await provide(decideProposal("p5", { kind: "accept", edits: null }, NOW));
+    expect(stale.kind).toBe("refused");
+    expect(stale.kind === "refused" ? stale.reason : "").toContain("old-text-missing");
 
     const states = await Effect.runPromise(
       store.all<{ id: string; state: string }>("SELECT id, state FROM proposals ORDER BY id"),

@@ -58,7 +58,7 @@ describe("inventory", () => {
   });
 
   test("lists root, imported, nested and rules files, and skips ignored ones", () => {
-    const loaded = files.map((file) => file.loadedPath.replace(project.root, "P").replace(home, "H")).sort();
+    const loaded = files.map((file) => file.loadedPath.replace(project.root, "P").replace(home, "H")).toSorted();
     expect(loaded).toEqual([
       "H/.claude/AGENTS.md",
       "H/.claude/CLAUDE.md",

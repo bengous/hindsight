@@ -52,7 +52,7 @@ function details(reason: StaleFinding["reason"]): readonly string[] {
   return findings
     .filter((finding) => finding.reason === reason)
     .map((finding) => finding.detail)
-    .sort();
+    .toSorted();
 }
 
 describe("staleScan", () => {
@@ -76,11 +76,12 @@ describe("staleScan", () => {
 
   test("gives stable ids", async () => {
     const again = await staleScan(files);
-    expect(again.map((finding) => finding.id).sort()).toEqual(findings.map((finding) => finding.id).sort());
+    expect(again.map((finding) => finding.id).toSorted()).toEqual(findings.map((finding) => finding.id).toSorted());
     expect(findings[0]?.id).toMatch(/^[0-9a-f]{10}$/);
   });
 
   test("skips global files", async () => {
+    // oxlint-disable-next-line oxc/no-map-spread -- `files` is the inventory every test of this suite reads: Object.assign would turn it global for them.
     const global = files.map((file): RuleFile => ({ ...file, scope: "global" }));
     expect(await staleScan(global)).toEqual([]);
   });

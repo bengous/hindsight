@@ -154,7 +154,7 @@ async function writeGlobal(request: ApplyRequest, creates: boolean): Promise<App
 export async function applyChange(request: ApplyRequest): Promise<ApplyResult> {
   const creates = isCreation(request.edits);
 
-  if (typeof creates !== "boolean") {
+  if (creates !== true && creates !== false) {
     return creates;
   }
 

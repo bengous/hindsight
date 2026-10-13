@@ -1,14 +1,15 @@
 import type { HindsightConfig } from "../domain/config.ts";
 import type { ProposalState } from "../domain/proposal.ts";
 import type { ApplyResult, TextEdit } from "../rules/apply.ts";
-import type { StoreService, SyncStore } from "../store/db.ts";
+import type { StoreError, StoreService, SyncStore } from "../store/db.ts";
 import type { Change, Evidence, Prevalence, ProposalRow } from "../store/queries.ts";
 
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { existsSync, readFileSync } from "node:fs";
 
 import { nextProposalState } from "../domain/proposal.ts";
 import { redactSecrets } from "../domain/redact.ts";
+import { ChangeSchema } from "../learn/schema.ts";
 import { applyChange, editedText } from "../rules/apply.ts";
 import { newId } from "../rules/ids.ts";
 import { Store } from "../store/db.ts";
@@ -48,33 +49,71 @@ export type DecisionOutcome =
   | { readonly kind: "handed_off" }
   | { readonly kind: "refused"; readonly reason: string };
 
+export type ReviewPass = {
+  readonly items: readonly ReviewItem[];
+  readonly pending: number;
+  readonly expired: number;
+  readonly superseded: number;
+};
+
+export type PreparedHandoff = {
+  readonly id: string | null;
+  readonly instructions: string | null;
+  readonly proposals: number;
+};
+
 export type ReadFile = (path: string) => string | null;
 
 export const readFileOrNull: ReadFile = (path) => (existsSync(path) ? readFileSync(path, "utf8") : null);
 
-function parseChange(json: string): Change {
-  const parsed: unknown = JSON.parse(json);
+const EvidenceSchema = Schema.Struct({
+  evidenceId: Schema.String,
+  kind: Schema.Literals(["quote", "observation"]),
+  at: Schema.String,
+  sessionId: Schema.String,
+  text: Schema.String,
+  tool: Schema.NullOr(Schema.String),
+});
 
-  if (typeof parsed === "object" && parsed !== null && "kind" in parsed) {
-    return parsed as Change;
-  }
+const PrevalenceSchema = Schema.Struct({
+  sessions: Schema.Int,
+  days: Schema.Int,
+  repos: Schema.Int,
+  firstAt: Schema.String,
+  lastAt: Schema.String,
+});
 
-  throw new Error(`proposal change out of shape: ${json.slice(0, 80)}`);
-}
+const decodeState = Schema.decodeUnknownSync(
+  Schema.Literals(["pending", "accepted", "handed_off", "rejected", "superseded", "expired"]),
+);
+
+const decodeChange = Schema.decodeSync(Schema.fromJsonString(ChangeSchema));
+
+const decodeEvidence = Schema.decodeSync(Schema.fromJsonString(Schema.Array(EvidenceSchema)));
+
+const decodePrevalence = Schema.decodeSync(Schema.fromJsonString(PrevalenceSchema));
 
 export function toReviewItem(row: ProposalRow, db: SyncStore): ReviewItem {
-  const evidence = (JSON.parse(row.evidence_json) as Evidence[]).map((item): ReviewEvidence => {
+  const evidence = decodeEvidence(row.evidence_json).map((item): ReviewEvidence => {
     const message =
       item.kind === "quote"
         ? (db.get<{ text: string }>("SELECT text FROM messages WHERE evidence_id = ?", [item.evidenceId])?.text ?? null)
         : null;
 
-    return { ...item, text: redactSecrets(item.text), message: message === null ? null : redactSecrets(message) };
+    return {
+      evidenceId: item.evidenceId,
+      kind: item.kind,
+      at: item.at,
+      sessionId: item.sessionId,
+      text: redactSecrets(item.text),
+      tool: item.tool,
+      message: message === null ? null : redactSecrets(message),
+    };
   });
 
   return {
     id: row.id,
-    state: row.state as ProposalState,
+    state: decodeState(row.state),
     source: row.source,
     targetPath: row.target_path,
     repoRoot: row.repo_root,
@@ -84,9 +123,9 @@ export function toReviewItem(row: ProposalRow, db: SyncStore): ReviewItem {
     reasoningFr: row.reasoning_fr,
     lessonEn: row.lesson_en,
     subjectEn: row.subject_en,
-    change: parseChange(row.change_json),
+    change: decodeChange(row.change_json),
     evidence,
-    prevalence: JSON.parse(row.prevalence_json) as Prevalence,
+    prevalence: decodePrevalence(row.prevalence_json),
     createdAt: row.created_at,
   };
 }
@@ -95,15 +134,17 @@ function setState(db: SyncStore, id: string, state: ProposalState): void {
   db.run("UPDATE proposals SET state = ? WHERE id = ?", [state, id]);
 }
 
+type Settled = { readonly expired: number; readonly superseded: number };
+
 /** An edit whose old text no longer applies expires; of two pending Proposals on the same text, the newer stays. */
-export function settlePending(db: SyncStore, readFile: ReadFile): { expired: number; superseded: number } {
+export function settlePending(db: SyncStore, readFile: ReadFile): Settled {
   const rows = db.all<ProposalRow>("SELECT * FROM proposals WHERE state = 'pending' ORDER BY created_at DESC");
   let expired = 0;
   let superseded = 0;
   const seen = new Set<string>();
 
   for (const row of rows) {
-    const change = parseChange(row.change_json);
+    const change = decodeChange(row.change_json);
     const key = `${row.target_path}\0${row.bullet_id ?? (change.kind === "edit" ? (change.edits[0]?.oldText ?? "") : row.id)}`;
 
     if (seen.has(key)) {
@@ -128,7 +169,10 @@ export function settlePending(db: SyncStore, readFile: ReadFile): { expired: num
 }
 
 /** The pending Proposals of one Review pass: by Prevalence, then by age, `pageSize` at most. */
-export const listReview = (config: HindsightConfig, readFile: ReadFile = readFileOrNull) =>
+export const listReview = (
+  config: HindsightConfig,
+  readFile: ReadFile = readFileOrNull,
+): Effect.Effect<ReviewPass, StoreError, Store> =>
   Effect.gen(function* () {
     const store = yield* Store;
 
@@ -170,7 +214,7 @@ function recordDecision(
   setState(db, item.id, decision);
 }
 
-const loadPending = (store: StoreService, id: string) =>
+const loadPending = (store: StoreService, id: string): Effect.Effect<ReviewItem | null, StoreError> =>
   store.transaction((db) => {
     const row = db.get<ProposalRow>("SELECT * FROM proposals WHERE id = ?", [id]);
 
@@ -179,7 +223,7 @@ const loadPending = (store: StoreService, id: string) =>
 
 /** The texts a commit message must not hold: the evidence and the cited messages, before any masking. */
 function rawExcerpts(db: SyncStore, row: ProposalRow): string[] {
-  const evidence = JSON.parse(row.evidence_json) as Evidence[];
+  const evidence = decodeEvidence(row.evidence_json);
 
   const messages = evidence
     .filter((item) => item.kind === "quote")
@@ -192,8 +236,14 @@ function rawExcerpts(db: SyncStore, row: ProposalRow): string[] {
   return [...evidence.map((item) => item.text), ...messages];
 }
 
+type ReservedAccept = { readonly item: ReviewItem; readonly excerpts: readonly string[] };
+
 /** Takes the Proposal for this accept before any file changes: a second accept, concurrent or later, finds it taken. */
-const reserveAccept = (store: StoreService, id: string, nowIso: string) =>
+const reserveAccept = (
+  store: StoreService,
+  id: string,
+  nowIso: string,
+): Effect.Effect<ReservedAccept | null, StoreError> =>
   store.transaction((db) => {
     const row = db.get<ProposalRow>("SELECT * FROM proposals WHERE id = ? AND state = 'pending'", [id]);
 
@@ -207,14 +257,18 @@ const reserveAccept = (store: StoreService, id: string, nowIso: string) =>
     return { item, excerpts: rawExcerpts(db, row) };
   });
 
-const releaseAccept = (store: StoreService, id: string) =>
+const releaseAccept = (store: StoreService, id: string): Effect.Effect<void, StoreError> =>
   store.transaction((db) => {
     db.run("DELETE FROM decisions WHERE proposal_id = ? AND decision = 'accepted' AND commit_sha IS NULL", [id]);
     setState(db, id, "pending");
   });
 
 /** The one place a Decision is taken: accept applies and commits, reject needs a reason, handoff marks. */
-export const decideProposal = (id: string, decision: Decision, nowIso: string = new Date().toISOString()) =>
+export const decideProposal = (
+  id: string,
+  decision: Decision,
+  nowIso: string = new Date().toISOString(),
+): Effect.Effect<DecisionOutcome, StoreError, Store> =>
   Effect.gen(function* () {
     const store = yield* Store;
     const item = yield* loadPending(store, id);
@@ -317,7 +371,9 @@ function changeInstructions(item: ReviewItem): string {
 }
 
 /** The Handoff's instructions: targets, claims, lessons and changes, never a Quote (principle 7). */
-export const prepareHandoff = (nowIso: string = new Date().toISOString()) =>
+export const prepareHandoff = (
+  nowIso: string = new Date().toISOString(),
+): Effect.Effect<PreparedHandoff, StoreError, Store> =>
   Effect.gen(function* () {
     const store = yield* Store;
 

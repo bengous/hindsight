@@ -8,13 +8,17 @@ const MAX_EXPANSIONS = 1000;
 function closingBrace(pattern: string, open: number): number {
   let depth = 0;
 
-  for (let i = open; i < pattern.length; i++) {
+  for (let i = open; i < pattern.length; i += 1) {
     if (pattern[i] === "\\") {
-      i++;
+      i += 1;
     } else if (pattern[i] === "{") {
-      depth++;
-    } else if (pattern[i] === "}" && --depth === 0) {
-      return i;
+      depth += 1;
+    } else if (pattern[i] === "}") {
+      depth -= 1;
+
+      if (depth === 0) {
+        return i;
+      }
     }
   }
 
@@ -27,13 +31,13 @@ export function splitTopLevel(inner: string): readonly string[] {
   let depth = 0;
   let start = 0;
 
-  for (let i = 0; i < inner.length; i++) {
+  for (let i = 0; i < inner.length; i += 1) {
     if (inner[i] === "\\") {
-      i++;
+      i += 1;
     } else if (inner[i] === "{") {
-      depth++;
+      depth += 1;
     } else if (inner[i] === "}") {
-      depth--;
+      depth -= 1;
     } else if (inner[i] === "," && depth === 0) {
       parts.push(inner.slice(start, i));
       start = i + 1;
@@ -78,13 +82,13 @@ export function globMatcher(pattern: string): (path: string) => boolean {
   return (path) => globs.some((glob) => glob.match(path));
 }
 
-const globChars = /[*?[\]{}]/;
+const GLOB_CHARS = /[*?[\]{}]/;
 
 /** True when a file under `base` matches; scans only below the pattern's literal directory prefix. */
 export function matchesOnDisk(base: string, pattern: string): boolean {
   return expandBraces(pattern).some((expanded) => {
     const segments = expanded.split("/");
-    const literal = segments.findIndex((segment) => globChars.test(segment));
+    const literal = segments.findIndex((segment) => GLOB_CHARS.test(segment));
 
     if (literal === -1) {
       return existsSync(join(base, expanded));
@@ -132,12 +136,10 @@ export function ruleAppliesTo(file: RuleFile, absPath: string, projectRoot: stri
     return true;
   }
 
+  const projectBases = projectRoot === null ? [] : [projectRoot];
+
   const bases =
-    file.scope === "global" || file.repoRoot === null
-      ? projectRoot === null
-        ? []
-        : [projectRoot]
-      : [file.repoRoot, ownerDir(file, file.repoRoot)];
+    file.scope === "global" || file.repoRoot === null ? projectBases : [file.repoRoot, ownerDir(file, file.repoRoot)];
 
   const matchers = file.paths.map(globMatcher);
 

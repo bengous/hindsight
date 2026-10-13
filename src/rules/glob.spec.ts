@@ -41,17 +41,17 @@ describe("matchesOnDisk", () => {
   });
 });
 
-describe("ruleAppliesTo", () => {
-  const rule = (sourcePath: string, scope: RuleFile["scope"], paths: readonly string[] | null): RuleFile => ({
-    loadedPath: sourcePath,
-    sourcePath,
-    repoRoot: scope === "global" ? "/dots" : "/repo",
-    scope,
-    blobHash: "0",
-    paths,
-    bullets: [],
-  });
+const rule = (sourcePath: string, scope: RuleFile["scope"], paths: readonly string[] | null): RuleFile => ({
+  loadedPath: sourcePath,
+  sourcePath,
+  repoRoot: scope === "global" ? "/dots" : "/repo",
+  scope,
+  blobHash: "0",
+  paths,
+  bullets: [],
+});
 
+describe("ruleAppliesTo", () => {
   test("an always-loaded rule applies everywhere", () => {
     expect(ruleAppliesTo(rule("/repo/AGENTS.md", "repo", null), "/elsewhere/x.ts", "/repo")).toBe(true);
   });

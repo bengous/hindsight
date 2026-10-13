@@ -15,15 +15,11 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const repoScopedGitEnv = new Set(["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX", "GIT_OBJECT_DIRECTORY"]);
 
 function childEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && !repoScopedGitEnv.has(key)) {
-      env[key] = value;
-    }
-  }
-
-  return env;
+  return Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined && !repoScopedGitEnv.has(entry[0]),
+    ),
+  );
 }
 
 export async function run(command: readonly string[], options: RunOptions): Promise<RunResult> {

@@ -73,7 +73,7 @@ describe("applyChange in a checkout", () => {
         "hindsight proposal p-1",
       ].join("\n"),
     );
-    expect(repo.git("status", "--porcelain").split("\n").filter(Boolean).sort()).toEqual([
+    expect(repo.git("status", "--porcelain").split("\n").filter(Boolean).toSorted()).toEqual([
       " M src/app.ts",
       "A  staged.txt",
     ]);

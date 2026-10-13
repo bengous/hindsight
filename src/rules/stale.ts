@@ -1,5 +1,6 @@
 import type { RuleFile, StaleFinding } from "./types.ts";
 
+import { Schema } from "effect";
 import { existsSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
@@ -13,13 +14,17 @@ type RepoView = {
   readonly ignored: (path: string) => Promise<boolean>;
 };
 
-const notAPath = /[\s*?[\]{}<>$|`'"=]|:\/\/|\.\.\./;
+const NOT_A_PATH = /[\s*?[\]{}<>$|`'"=]|:\/\/|\.\.\./;
 
-const lineSuffix = /:\d+(?:-\d+)?$/;
+const LINE_SUFFIX = /:\d+(?:-\d+)?$/;
 
-const scriptCall = /(?:^|[\s`(;&|])(bun|npm|pnpm|yarn)\s+run\s+([^\s`'")]+)/g;
+const SCRIPT_CALL = /(?:^|[\s`(;&|])(bun|npm|pnpm|yarn)\s+run\s+([^\s`'")]+)/g;
 
-const fileScript = /\.(?:[cm]?[jt]s|sh)$/;
+const FILE_SCRIPT = /\.(?:[cm]?[jt]s|sh)$/;
+
+const PackageManifest = Schema.Struct({ scripts: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)) });
+
+const decodeManifest = Schema.decodeSync(Schema.fromJsonString(PackageManifest));
 
 function findingId(sourcePath: string, reason: StaleFinding["reason"], detail: string): string {
   return new Bun.CryptoHasher("sha1").update(`${sourcePath}\0${reason}\0${detail}`).digest("hex").slice(0, 10);
@@ -68,11 +73,11 @@ function deadGlobs(file: RuleFile, repoRoot: string, view: RepoView): readonly S
 
 function pathCandidate(code: string): string | null {
   const token = code
-    .replace(lineSuffix, "")
+    .replace(LINE_SUFFIX, "")
     .replace(/^\.\//, "")
     .replace(/[.,;:]+$/, "");
 
-  if (!token.includes("/") || token.endsWith("/") || notAPath.test(token)) {
+  if (!token.includes("/") || token.endsWith("/") || NOT_A_PATH.test(token)) {
     return null;
   }
 
@@ -83,43 +88,46 @@ function pathCandidate(code: string): string | null {
   return token;
 }
 
+type MissingPath = { readonly line: number; readonly token: string; readonly cited: string };
+
 async function missingPaths(file: RuleFile, repoRoot: string, view: RepoView): Promise<readonly StaleFinding[]> {
   const text = await Bun.file(file.sourcePath).text();
   const bases = [...new Set([repoRoot, ownerDir(file, repoRoot), dirname(file.sourcePath)])];
-  const findings: StaleFinding[] = [];
 
-  for (const span of codeSpans(text)) {
+  const candidates = codeSpans(text).flatMap((span): MissingPath[] => {
     const token = pathCandidate(span.code);
 
     if (token === null) {
-      continue;
+      return [];
     }
 
     const first = token.split("/")[0] ?? "";
     const anchored = bases.filter((base) => existsSync(join(base, first)));
 
     if (anchored.length === 0) {
-      continue;
+      return [];
     }
 
     const cited = anchored.map((base) => relative(repoRoot, join(base, token)));
 
     if (anchored.some((base) => existsSync(join(base, token)))) {
-      continue;
+      return [];
     }
 
     if (view.files.some((path) => cited.some((prefix) => path.startsWith(prefix)))) {
-      continue;
+      return [];
     }
 
-    if (await view.ignored(cited[0] ?? token)) {
-      continue;
-    }
+    return [{ line: span.line, token, cited: cited[0] ?? token }];
+  });
 
-    findings.push(finding(file, "missing-path", token, bulletAt(file.bullets, span.line)?.id ?? null));
-  }
+  const checked = await Promise.all(
+    candidates.map(async (candidate) => ({ candidate, ignored: await view.ignored(candidate.cited) })),
+  );
 
-  return findings;
+  return checked.flatMap(({ candidate, ignored }) =>
+    ignored ? [] : [finding(file, "missing-path", candidate.token, bulletAt(file.bullets, candidate.line)?.id ?? null)],
+  );
 }
 
 function manifestsUpTo(from: string, repoRoot: string): readonly string[] {
@@ -141,19 +149,17 @@ function manifestsUpTo(from: string, repoRoot: string): readonly string[] {
 }
 
 async function scriptNames(manifest: string): Promise<readonly string[]> {
-  let parsed: unknown;
+  let parsed: typeof PackageManifest.Type;
 
   try {
-    parsed = await Bun.file(manifest).json();
+    parsed = decodeManifest(await Bun.file(manifest).text());
   } catch (error) {
     throw new Error(`stale scan: cannot parse ${manifest}: ${error instanceof Error ? error.message : String(error)}`, {
       cause: error,
     });
   }
 
-  const scripts = typeof parsed === "object" && parsed !== null && "scripts" in parsed ? parsed.scripts : null;
-
-  return typeof scripts === "object" && scripts !== null ? Object.keys(scripts) : [];
+  return parsed.scripts === undefined ? [] : Object.keys(parsed.scripts);
 }
 
 async function missingCommands(file: RuleFile, repoRoot: string): Promise<readonly StaleFinding[]> {
@@ -171,11 +177,11 @@ async function missingCommands(file: RuleFile, repoRoot: string): Promise<readon
   const findings: StaleFinding[] = [];
 
   for (const line of bodyLines(await Bun.file(file.sourcePath).text())) {
-    for (const match of line.text.matchAll(scriptCall)) {
+    for (const match of line.text.matchAll(SCRIPT_CALL)) {
       const tool = match[1] ?? "";
       const cited = match[2] ?? "";
 
-      if (cited.startsWith("-") || cited.includes("/") || cited.includes("|") || fileScript.test(cited)) {
+      if (cited.startsWith("-") || cited.includes("/") || cited.includes("|") || FILE_SCRIPT.test(cited)) {
         continue;
       }
 
@@ -205,24 +211,26 @@ export async function staleScan(files: readonly RuleFile[]): Promise<readonly St
   const views = new Map<string, Promise<RepoView>>();
   const findings = new Map<string, StaleFinding>();
 
-  for (const file of files) {
-    if (file.scope === "global" || file.repoRoot === null) {
-      continue;
-    }
+  const scans = await Promise.all(
+    files.map(async (file): Promise<readonly StaleFinding[]> => {
+      if (file.scope === "global" || file.repoRoot === null) {
+        return [];
+      }
 
-    const repoRoot = file.repoRoot;
-    const view = views.get(repoRoot) ?? repoView(repoRoot);
-    views.set(repoRoot, view);
+      const repoRoot = file.repoRoot;
+      const view = views.get(repoRoot) ?? repoView(repoRoot);
+      views.set(repoRoot, view);
 
-    const found = [
-      ...deadGlobs(file, repoRoot, await view),
-      ...(await missingPaths(file, repoRoot, await view)),
-      ...(await missingCommands(file, repoRoot)),
-    ];
+      return [
+        ...deadGlobs(file, repoRoot, await view),
+        ...(await missingPaths(file, repoRoot, await view)),
+        ...(await missingCommands(file, repoRoot)),
+      ];
+    }),
+  );
 
-    for (const item of found) {
-      findings.set(item.id, item);
-    }
+  for (const item of scans.flat()) {
+    findings.set(item.id, item);
   }
 
   return [...findings.values()];
