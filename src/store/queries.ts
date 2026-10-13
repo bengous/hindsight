@@ -334,7 +334,7 @@ export function finishLearnRun(
 
 export function lastLearnFinishedAt(db: SyncStore): string | null {
   return (
-    db.get<{ at: string | null }>("SELECT MAX(finished_at) AS at FROM learn_runs WHERE status <> 'running'")?.at ?? null
+    db.get<{ at: string | null }>("SELECT MAX(finished_at) AS at FROM learn_runs WHERE status = 'complete'")?.at ?? null
   );
 }
 

@@ -1,13 +1,12 @@
-import type { DeltaOp } from "../types.ts";
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { tempRepo, type TempRepo } from "../../fixtures/rules/repo.ts";
-import { applyDelta, type ApplyRequest, type TargetLookup } from "./apply.ts";
+import { tempDir, tempRepo, type TempRepo } from "../../fixtures/rules/repo.ts";
+import { applyChange, type ApplyRequest, type TextEdit } from "./apply.ts";
 
 const RULES = "# Rules\n- Keep functions small.\n- Name things plainly.\n";
-const noTargets: TargetLookup = async () => [];
 const repos: TempRepo[] = [];
+const dirs: string[] = [];
 
 function fixture(): TempRepo {
   const repo = tempRepo({ "AGENTS.md": RULES, "src/app.ts": "export {};\n" });
@@ -17,56 +16,45 @@ function fixture(): TempRepo {
 
 afterEach(() => {
   for (const repo of repos.splice(0)) repo.cleanup();
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function request(
-  repo: TempRepo,
-  op: Partial<DeltaOp> & Pick<DeltaOp, "edits">,
-  overrides: Partial<ApplyRequest> = {},
-): ApplyRequest {
+function request(repo: TempRepo, edits: readonly TextEdit[], overrides: Partial<ApplyRequest> = {}): ApplyRequest {
   return {
-    runId: "run-1",
     proposalId: "p-1",
+    targetPath: join(repo.root, "AGENTS.md"),
     repoRoot: repo.root,
-    blobHash: repo.git("hash-object", "AGENTS.md").trim(),
-    op: { op: "update", sourcePath: join(repo.root, "AGENTS.md"), ...op },
-    deployedPath: null,
+    edits,
     subject: "Prefer the order factory in tests",
     lesson: "Build orders in tests with the order factory.",
     prevalence: { sessions: 5, days: 4, repos: 1, firstAt: "2026-09-14T08:00:00Z", lastAt: "2026-10-06T16:00:00Z" },
     excerpts: ["utilise la fabrique makeOrder, pas un objet"],
-    memoryNotes: 0,
     ...overrides,
   };
 }
 
 const rename = { oldText: "- Name things plainly.", newText: "- Name things after the domain." };
 
-describe("applyDelta", () => {
-  test("commits only the edited file, with run and prevalence in the message", async () => {
+describe("applyChange in a checkout", () => {
+  test("commits only the edited file, with the lesson and the evidence counts in the message", async () => {
     const repo = fixture();
     repo.write("src/app.ts", "export const dirty = 1;\n");
     repo.write("staged.txt", "staged\n");
     repo.git("add", "staged.txt");
-
-    const result = await applyDelta(request(repo, { edits: [rename] }), async () => ["/home/u/.claude/AGENTS.md"]);
-
+    const result = await applyChange(request(repo, [rename]));
     expect(result.kind).toBe("committed");
     if (result.kind !== "committed") return;
     expect(result.commit).toBe(repo.git("rev-parse", "HEAD").trim());
-    expect(result.followUp).toEqual(["chezmoi apply /home/u/.claude/AGENTS.md"]);
     expect(repo.git("show", "--name-only", "--format=", "HEAD").trim()).toBe("AGENTS.md");
     expect(readFileSync(join(repo.root, "AGENTS.md"), "utf8")).toContain("- Name things after the domain.");
-    const message = repo.git("log", "-1", "--format=%B");
-    expect(message).toContain("Prefer the order factory in tests");
-    expect(message.trimEnd()).toBe(
+    expect(repo.git("log", "-1", "--format=%B").trimEnd()).toBe(
       [
         "Prefer the order factory in tests",
         "",
         "Build orders in tests with the order factory.",
         "",
         "Evidence: 5 sessions, 4 days, 1 repo",
-        "hindsight run run-1, proposal p-1",
+        "hindsight proposal p-1",
       ].join("\n"),
     );
     expect(repo.git("status", "--porcelain").split("\n").filter(Boolean).sort()).toEqual([
@@ -75,123 +63,62 @@ describe("applyDelta", () => {
     ]);
   });
 
-  test("applies the reviewed replacement on a changed file when it still matches once, and reports the drift", async () => {
+  test("applies on a file that changed since the Proposal when the old text still matches once", async () => {
     const repo = fixture();
-    const drafted = request(repo, { edits: [rename] });
     repo.write("AGENTS.md", `${RULES}- Added later.\n`);
     repo.git("commit", "-qam", "later");
-    const found = repo.git("hash-object", "AGENTS.md").trim();
-    const result = await applyDelta(drafted, noTargets);
-    expect(result).toMatchObject({ kind: "committed", drift: { drafted: drafted.blobHash, found } });
+    expect(await applyChange(request(repo, [rename]))).toMatchObject({ kind: "committed" });
     expect(readFileSync(join(repo.root, "AGENTS.md"), "utf8")).toBe(
       "# Rules\n- Keep functions small.\n- Name things after the domain.\n- Added later.\n",
     );
   });
 
-  test("reports no drift when the file is as drafted", async () => {
+  test("refuses an old text found zero or several times, overlapping matches included, and leaves the file alone", async () => {
     const repo = fixture();
-    expect(await applyDelta(request(repo, { edits: [rename] }), noTargets)).toMatchObject({
-      kind: "committed",
-      drift: null,
+    expect(await applyChange(request(repo, [{ oldText: "- Absent rule.", newText: "x" }]))).toMatchObject({
+      reason: "old-text-missing",
     });
-  });
-
-  test("refuses as hash-mismatch when the file changed and the replacement no longer matches", async () => {
-    const repo = fixture();
-    const drafted = request(repo, { edits: [rename] });
-    repo.write("AGENTS.md", "# Rules\n- Keep functions small.\n- Name things clearly.\n");
-    repo.git("commit", "-qam", "reworded");
-    const result = await applyDelta(drafted, noTargets);
-    expect(result).toMatchObject({ kind: "refused", reason: "hash-mismatch" });
-    if (result.kind === "refused") expect(result.detail).toContain("old-text-missing");
-    expect(repo.git("status", "--porcelain")).toBe("");
-  });
-
-  test("refuses a changed file with uncommitted edits as dirty, not as drift", async () => {
-    const repo = fixture();
-    const drafted = request(repo, { edits: [rename] });
-    repo.write("AGENTS.md", `${RULES}- Uncommitted.\n`);
-    expect(await applyDelta(drafted, noTargets)).toMatchObject({ kind: "refused", reason: "dirty-file" });
-  });
-
-  test("refuses an old text found zero or several times, and leaves the file alone", async () => {
-    const repo = fixture();
-    expect(
-      await applyDelta(request(repo, { edits: [{ oldText: "- Absent rule.", newText: "x" }] }), noTargets),
-    ).toMatchObject({ kind: "refused", reason: "old-text-missing" });
-    expect(await applyDelta(request(repo, { edits: [{ oldText: "- ", newText: "* " }] }), noTargets)).toMatchObject({
-      kind: "refused",
+    expect(await applyChange(request(repo, [{ oldText: "- ", newText: "* " }]))).toMatchObject({
       reason: "old-text-ambiguous",
     });
     expect(readFileSync(join(repo.root, "AGENTS.md"), "utf8")).toBe(RULES);
-  });
-
-  test("counts overlapping matches as ambiguous, as the curator gate does", async () => {
-    const repo = fixture();
     repo.write("AGENTS.md", "- Use aaa.\n");
     repo.git("commit", "-qam", "triple");
-    expect(await applyDelta(request(repo, { edits: [{ oldText: "aa", newText: "a" }] }), noTargets)).toMatchObject({
+    expect(await applyChange(request(repo, [{ oldText: "aa", newText: "a" }]))).toMatchObject({
       reason: "old-text-ambiguous",
     });
-    expect(readFileSync(join(repo.root, "AGENTS.md"), "utf8")).toBe("- Use aaa.\n");
   });
 
-  test("states the evidence of a finding without sessions", async () => {
-    const zero = { sessions: 0, days: 0, repos: 0, firstAt: "2026-10-08T00:00:00Z", lastAt: "2026-10-08T00:00:00Z" };
-    const scanRepo = fixture();
-    await applyDelta(request(scanRepo, { edits: [rename] }, { prevalence: zero }), noTargets);
-    expect(scanRepo.git("log", "-1", "--format=%B")).toContain("Evidence: deterministic rule scan\n");
-    const noteRepo = fixture();
-    await applyDelta(request(noteRepo, { edits: [rename] }, { prevalence: zero, memoryNotes: 2 }), noTargets);
-    expect(noteRepo.git("log", "-1", "--format=%B")).toContain("Evidence: 2 memory notes\n");
-    const mixedRepo = fixture();
-    await applyDelta(request(mixedRepo, { edits: [rename] }, { memoryNotes: 1 }), noTargets);
-    expect(mixedRepo.git("log", "-1", "--format=%B")).toContain(
-      "Evidence: 5 sessions, 4 days, 1 repo, 1 memory note\n",
-    );
-  });
-
-  test("refuses without a checkout, outside it, or on a dirty file", async () => {
+  test("states the evidence of a Prune finding without sessions", async () => {
     const repo = fixture();
-    expect(await applyDelta(request(repo, { edits: [rename] }, { repoRoot: null }), noTargets)).toMatchObject({
-      reason: "no-checkout",
-    });
-    expect(await applyDelta(request(repo, { edits: [rename], sourcePath: "/etc/hostname" }), noTargets)).toMatchObject({
+    const zero = { sessions: 0, days: 0, repos: 0, firstAt: "2026-10-08T00:00:00Z", lastAt: "2026-10-08T00:00:00Z" };
+    await applyChange(request(repo, [rename], { prevalence: zero }));
+    expect(repo.git("log", "-1", "--format=%B")).toContain("Evidence: deterministic rule scan\n");
+  });
+
+  test("refuses outside the checkout, a dirty file, a quote in the message, and a bad edit list", async () => {
+    const repo = fixture();
+    expect(await applyChange(request(repo, [rename], { targetPath: "/etc/hostname" }))).toMatchObject({
       reason: "outside-checkout",
     });
-    const drafted = request(repo, { edits: [rename] });
-    repo.write("AGENTS.md", `${RULES}\n`);
     expect(
-      await applyDelta({ ...drafted, blobHash: repo.git("hash-object", "AGENTS.md").trim() }, noTargets),
-    ).toMatchObject({
-      reason: "dirty-file",
-    });
-  });
-
-  test("refuses a commit message that carries an evidence quote", async () => {
-    const repo = fixture();
-    const leaking = request(
-      repo,
-      { edits: [rename] },
-      { lesson: "User said: utilise la fabrique makeOrder, pas un objet écrit." },
-    );
-    expect(await applyDelta(leaking, noTargets)).toMatchObject({ reason: "excerpt-in-message" });
+      await applyChange(
+        request(repo, [rename], { lesson: "User said: utilise la fabrique makeOrder, pas un objet écrit." }),
+      ),
+    ).toMatchObject({ reason: "excerpt-in-message" });
+    expect(await applyChange(request(repo, []))).toMatchObject({ reason: "invalid-edit" });
+    repo.write("AGENTS.md", `${RULES}\n`);
+    expect(await applyChange(request(repo, [rename]))).toMatchObject({ reason: "dirty-file" });
   });
 
   test("creates a new rule file, and refuses when it already exists", async () => {
     const repo = fixture();
-    const create = request(
-      repo,
-      {
-        op: "add",
-        sourcePath: join(repo.root, ".claude/rules/tests.md"),
-        edits: [{ oldText: "", newText: "- New.\n" }],
-      },
-      { blobHash: null },
-    );
-    expect(await applyDelta(create, noTargets)).toMatchObject({ kind: "committed" });
+    const create = request(repo, [{ oldText: "", newText: "- New.\n" }], {
+      targetPath: join(repo.root, ".claude/rules/tests.md"),
+    });
+    expect(await applyChange(create)).toMatchObject({ kind: "committed" });
     expect(repo.git("show", "--name-only", "--format=", "HEAD").trim()).toBe(".claude/rules/tests.md");
-    expect(await applyDelta(create, noTargets)).toMatchObject({ reason: "file-exists" });
+    expect(await applyChange(create)).toMatchObject({ reason: "file-exists" });
   });
 
   test("restores the file when a hook rejects the commit", async () => {
@@ -199,19 +126,36 @@ describe("applyDelta", () => {
     const hook = join(repo.hooks, "pre-commit");
     await Bun.write(hook, "#!/bin/sh\necho 'lint: rule file rejected' >&2\nexit 1\n");
     chmodSync(hook, 0o755);
-    const result = await applyDelta(request(repo, { edits: [rename] }), noTargets);
+    const result = await applyChange(request(repo, [rename]));
     expect(result).toMatchObject({ kind: "refused", reason: "commit-rejected" });
     if (result.kind === "refused") expect(result.detail).toContain("lint: rule file rejected");
     expect(readFileSync(join(repo.root, "AGENTS.md"), "utf8")).toBe(RULES);
     expect(repo.git("status", "--porcelain")).toBe("");
-
-    const create = request(
-      repo,
-      { op: "add", sourcePath: join(repo.root, "NEW.md"), edits: [{ oldText: "", newText: "- New.\n" }] },
-      { blobHash: null },
-    );
-    expect(await applyDelta(create, noTargets)).toMatchObject({ reason: "commit-rejected" });
+    const create = request(repo, [{ oldText: "", newText: "- New.\n" }], { targetPath: join(repo.root, "NEW.md") });
+    expect(await applyChange(create)).toMatchObject({ reason: "commit-rejected" });
     expect(existsSync(join(repo.root, "NEW.md"))).toBe(false);
     expect(repo.git("status", "--porcelain")).toBe("");
+  });
+});
+
+describe("applyChange on a global Rule File", () => {
+  test("writes the file where the agents load it, with no commit", async () => {
+    const home = tempDir("home");
+    dirs.push(home);
+    mkdirSync(join(home, ".claude"));
+    const target = join(home, ".claude/AGENTS.md");
+    await Bun.write(target, RULES);
+    const repo = fixture();
+    expect(await applyChange(request(repo, [rename], { repoRoot: null, targetPath: target }))).toEqual({
+      kind: "written",
+      path: target,
+    });
+    expect(readFileSync(target, "utf8")).toContain("- Name things after the domain.");
+    expect(await applyChange(request(repo, [rename], { repoRoot: null, targetPath: target }))).toMatchObject({
+      reason: "old-text-missing",
+    });
+    expect(
+      await applyChange(request(repo, [rename], { repoRoot: null, targetPath: join(home, "nope.md") })),
+    ).toMatchObject({ reason: "file-missing" });
   });
 });

@@ -5,6 +5,7 @@ import { AppConfig, appLayer, printJson } from "./app.ts";
 import { debrief } from "./debrief.ts";
 import { gate } from "./gate.ts";
 import { learnCommand, pruneCommand } from "./learn.ts";
+import { handoff, review } from "./review.ts";
 import { status } from "./status.ts";
 
 const config = Command.make(
@@ -23,7 +24,7 @@ const hindsight = Command.make("hindsight").pipe(
     ),
   }),
   Command.withDescription("Out-of-band upkeep of the Rule Files your agents load"),
-  Command.withSubcommands([config, debrief, gate, learnCommand, pruneCommand, status]),
+  Command.withSubcommands([config, debrief, gate, handoff, learnCommand, pruneCommand, review, status]),
 );
 
 hindsight.pipe(

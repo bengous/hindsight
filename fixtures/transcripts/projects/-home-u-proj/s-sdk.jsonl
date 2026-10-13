@@ -1,1 +1,0 @@
-{"type":"user","uuid":"k01","timestamp":"2026-03-01T11:00:00.000Z","sessionId":"s-sdk","cwd":"/home/u/proj","entrypoint":"sdk-cli","version":"2.1.290","origin":{"kind":"human"},"promptSource":"typed","message":{"role":"user","content":"Reply with the single word ok."}}

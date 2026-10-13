@@ -1,4 +1,4 @@
-import type { RuleFile } from "../types.ts";
+import type { RuleFile } from "./types.ts";
 import { afterAll, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tempDir, writeTree } from "../../fixtures/rules/repo.ts";
