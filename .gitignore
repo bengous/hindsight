@@ -1,3 +1,4 @@
 node_modules/
 .repos/
 .claude-plugin/types/
+docs/plan/dist/
