@@ -1,5 +1,5 @@
 import type { HindsightConfig } from "../domain/config.ts";
-import type { StoreShape } from "../store/db.ts";
+import type { StoreService } from "../store/db.ts";
 import type { ProposalRow } from "../store/queries.ts";
 import type { GateContext } from "./gates.ts";
 import type { LearnGroup, NoteView } from "./prompt.ts";
@@ -288,7 +288,7 @@ describe("gateLearn", () => {
 });
 
 describe("learn", () => {
-  let store: StoreShape;
+  let store: StoreService;
 
   const config: HindsightConfig = {
     ...defaultConfig,

@@ -1,7 +1,8 @@
-import type { StoreShape } from "../store/db.ts";
+import type { DebriefNotes } from "../domain/debrief.ts";
+import type { StoreService } from "../store/db.ts";
 import type { DebriefRow, NoteRow, ProposalRow } from "../store/queries.ts";
 import type { SessionRecord } from "../transcripts/session.ts";
-import type { RecordDeps, RecordInput } from "./record.ts";
+import type { RecordDeps, RecordInput, RecordOutcome } from "./record.ts";
 
 import { beforeEach, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
@@ -18,12 +19,12 @@ const projectsDir = join(import.meta.dir, "../../fixtures/debrief/projects");
 
 const NOW = "2026-10-01T10:00:00.000Z";
 
-const files: Record<string, string> = {
-  "/home/u/atelier/package.json": '{ "scripts": { "check": "bun run lint && bun test" } }',
-  "/home/u/atelier/AGENTS.md": "# Atelier\n\n- Run `bun run check:full` before a commit.\n- Keep commits small.\n",
-};
+const files = new Map([
+  ["/home/u/atelier/package.json", '{ "scripts": { "check": "bun run lint && bun test" } }'],
+  ["/home/u/atelier/AGENTS.md", "# Atelier\n\n- Run `bun run check:full` before a commit.\n- Keep commits small.\n"],
+]);
 
-const deps: RecordDeps = { now: () => NOW, readFile: (path) => files[path] ?? null, repoOf: () => null };
+const deps: RecordDeps = { now: () => NOW, readFile: (path) => files.get(path) ?? null, repoOf: () => null };
 
 const staleRule = {
   editedPath: "/home/u/atelier/package.json",
@@ -34,9 +35,9 @@ const staleRule = {
   lesson: "Name the package script that exists.",
 };
 
-const answer = (notes: object): string => `\`\`\`json\n${JSON.stringify(notes)}\n\`\`\``;
+const answer = (notes: Partial<DebriefNotes>): string => `\`\`\`json\n${JSON.stringify(notes)}\n\`\`\``;
 
-let store: StoreShape;
+let store: StoreService;
 
 let session: SessionRecord;
 
@@ -46,7 +47,7 @@ async function openDebrief(id = "d1"): Promise<void> {
   );
 }
 
-async function record(text: string, overrides: Partial<RecordInput> = {}) {
+async function record(text: string, overrides: Partial<RecordInput> = {}): Promise<RecordOutcome> {
   const input: RecordInput = {
     id: "d1",
     sessionId: "s-d1",
@@ -60,7 +61,7 @@ async function record(text: string, overrides: Partial<RecordInput> = {}) {
   return Effect.runPromise(store.transaction((db) => recordDebrief(db, defaultConfig, session, input, deps)));
 }
 
-const rows = async <T extends Record<string, string | number | null>>(sql: string) =>
+const rows = async <T extends Record<string, string | number | null>>(sql: string): Promise<T[]> =>
   Effect.runPromise(store.all<T>(sql));
 
 beforeEach(async () => {
@@ -80,10 +81,10 @@ describe("readSession", () => {
     expect(session.chain).toEqual(["s-d0", "s-d1"]);
     expect(session.cwd).toBe("/home/u/atelier");
     const humans = session.events.filter((event) => event.kind === "human");
-    expect(humans.map((human) => (human.kind === "human" ? human.uuid : ""))).toEqual(["a01", "b01", "b08"]);
+    expect(humans.map((human) => human.uuid)).toEqual(["a01", "b01", "b08"]);
     expect(humans[1]).toMatchObject({ text: "Reprends. Non, pas de npm pour ça, on reste sur pnpm." });
     const tools = session.events.filter((event) => event.kind === "tool");
-    expect(tools.map((tool) => (tool.kind === "tool" ? [tool.tool, tool.isError, tool.isRefused] : []))).toEqual([
+    expect(tools.map((tool) => [tool.tool, tool.isError, tool.isRefused])).toEqual([
       ["Bash", true, false],
       ["Edit", false, false],
       ["Bash", true, true],
@@ -232,7 +233,7 @@ describe("recordDebrief", () => {
   test("a Stale Rule whose file moved on since the edit is rejected", async () => {
     const stale = {
       ...deps,
-      readFile: (path: string) => (path.endsWith("package.json") ? "{}" : (files[path] ?? null)),
+      readFile: (path: string): string | null => (path.endsWith("package.json") ? "{}" : (files.get(path) ?? null)),
     };
 
     const input: RecordInput = {

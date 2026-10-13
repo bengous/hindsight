@@ -1,28 +1,21 @@
-export type JsonRecord = Readonly<Record<string, unknown>>;
+import type { JsonObject, JsonValue } from "../domain/json.ts";
 
-export const isRecord = (value: unknown): value is JsonRecord =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+import { isJsonObject, isString, textField } from "../domain/json.ts";
 
-export function stringField(record: JsonRecord, key: string): string | null {
+export function recordField(record: JsonObject, key: string): JsonObject | null {
   const value = record[key];
 
-  return typeof value === "string" ? value : null;
+  return isJsonObject(value) ? value : null;
 }
 
-export function recordField(record: JsonRecord, key: string): JsonRecord | null {
+export function recordsField(record: JsonObject, key: string): readonly JsonObject[] {
   const value = record[key];
 
-  return isRecord(value) ? value : null;
+  return Array.isArray(value) ? value.filter(isJsonObject) : [];
 }
 
-export function recordsField(record: JsonRecord, key: string): readonly JsonRecord[] {
-  const value = record[key];
-
-  return Array.isArray(value) ? value.filter(isRecord) : [];
-}
-
-export function contentText(content: unknown): string {
-  if (typeof content === "string") {
+export function contentText(content: JsonValue | undefined): string {
+  if (isString(content)) {
     return content;
   }
 
@@ -31,8 +24,8 @@ export function contentText(content: unknown): string {
   }
 
   return content
-    .filter(isRecord)
+    .filter(isJsonObject)
     .filter((block) => block["type"] === "text")
-    .map((block) => stringField(block, "text") ?? "")
+    .map((block) => textField(block, "text") ?? "")
     .join("\n");
 }

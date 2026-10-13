@@ -1,7 +1,7 @@
 import type { HindsightConfig } from "../domain/config.ts";
 import type { InventoryEnv } from "../rules/inventory.ts";
 import type { RuleFile } from "../rules/types.ts";
-import type { StoreShape } from "../store/db.ts";
+import type { StoreService } from "../store/db.ts";
 import type { HistoryEntry, NoteRow } from "../store/queries.ts";
 import type { GateContext } from "./gates.ts";
 import type { LearnGroup, NoteView, RuleSource } from "./prompt.ts";
@@ -175,7 +175,7 @@ type Reserved = {
   readonly pending: Set<string>;
 };
 
-function reserve(store: StoreShape, config: HindsightConfig, ifDue: boolean, nowIso: string) {
+function reserve(store: StoreService, config: HindsightConfig, ifDue: boolean, nowIso: string) {
   return store.transaction((db): Reserved | { readonly skipped: string } => {
     failStaleLearnRuns(db, nowIso, STALE_RUN_MS);
     const windowStart = new Date(new Date(nowIso).getTime() - config.notes.windowDays * 86_400_000).toISOString();

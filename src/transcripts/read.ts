@@ -1,6 +1,6 @@
-import type { JsonRecord } from "./json.ts";
+import type { JsonObject, JsonValue } from "../domain/json.ts";
 
-import { isRecord } from "./json.ts";
+import { isJsonObject, parseJson } from "../domain/json.ts";
 
 const decoder = new TextDecoder();
 
@@ -24,7 +24,7 @@ export async function readTranscriptText(path: string): Promise<string> {
  */
 export async function forEachEntry(
   path: string,
-  visit: (entry: JsonRecord) => void,
+  visit: (entry: JsonObject) => void,
 ): Promise<{ partialLine: boolean }> {
   const lines = (await readTranscriptText(path)).split("\n");
 
@@ -33,19 +33,19 @@ export async function forEachEntry(
       continue;
     }
 
-    let parsed: unknown;
+    let parsed: JsonValue;
 
     try {
-      parsed = JSON.parse(line);
-    } catch (cause) {
+      parsed = parseJson(line);
+    } catch (error) {
       if (index === lines.length - 1) {
         return { partialLine: true };
       }
 
-      throw new Error(`${path}:${index + 1}: invalid JSON line`, { cause });
+      throw new Error(`${path}:${index + 1}: invalid JSON line`, { cause: error });
     }
 
-    if (!isRecord(parsed)) {
+    if (!isJsonObject(parsed)) {
       throw new Error(`${path}:${index + 1}: entry is not a JSON object`);
     }
 

@@ -1,4 +1,4 @@
-import type { StoreShape } from "../store/db.ts";
+import type { StoreService } from "../store/db.ts";
 import type { ProposalInsert } from "../store/queries.ts";
 
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
@@ -22,7 +22,7 @@ const NOW = "2026-10-13T12:00:00.000Z";
 
 afterAll(() => repo.cleanup());
 
-let store: StoreShape;
+let store: StoreService;
 
 const provide = async <A, E>(effect: Effect.Effect<A, E, Store>) =>
   Effect.runPromise(effect.pipe(Effect.provide(Layer.succeed(Store, store))));

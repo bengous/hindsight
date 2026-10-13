@@ -1,11 +1,12 @@
-import type { JsonRecord } from "./json.ts";
+import type { JsonObject } from "../domain/json.ts";
 
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
 import { cleanHumanText, slashCommand } from "../domain/human.ts";
-import { contentText, isRecord, recordField, recordsField, stringField } from "./json.ts";
+import { isString, textField } from "../domain/json.ts";
+import { contentText, recordField, recordsField } from "./json.ts";
 import { forEachEntry } from "./read.ts";
 
 export type LoadedRuleSource = "instructions" | "nested_memory" | "output_style";
@@ -31,7 +32,7 @@ export type ToolEvent = {
   readonly sessionId: string;
   readonly timestamp: string;
   readonly tool: string;
-  readonly input: JsonRecord;
+  readonly input: JsonObject;
   readonly inputText: string;
   readonly outputText: string;
   readonly isError: boolean;
@@ -55,12 +56,12 @@ export type SessionRecord = {
 
 const INTERRUPT_PREFIX = "[Request interrupted by user";
 
-const PATH_INPUTS: Readonly<Record<string, string>> = {
-  Read: "file_path",
-  Edit: "file_path",
-  Write: "file_path",
-  NotebookEdit: "notebook_path",
-};
+const PATH_INPUTS: ReadonlyMap<string, string> = new Map([
+  ["Read", "file_path"],
+  ["Edit", "file_path"],
+  ["Write", "file_path"],
+  ["NotebookEdit", "notebook_path"],
+]);
 
 export function humanEvents(record: SessionRecord): readonly HumanEvent[] {
   return record.events.filter((event): event is HumanEvent => event.kind === "human");
@@ -73,20 +74,20 @@ export function toolEvents(record: SessionRecord): readonly ToolEvent[] {
 /** The text an Edit or Write put in its file, or null for another tool. */
 export function editedText(event: ToolEvent): string | null {
   if (event.tool === "Edit") {
-    return stringField(event.input, "new_string");
+    return textField(event.input, "new_string");
   }
 
   if (event.tool === "Write") {
-    return stringField(event.input, "content");
+    return textField(event.input, "content");
   }
 
   return null;
 }
 
 export function editedPath(event: ToolEvent): string | null {
-  const key = PATH_INPUTS[event.tool];
+  const key = PATH_INPUTS.get(event.tool);
 
-  return key === undefined ? null : stringField(event.input, key);
+  return key === undefined ? null : textField(event.input, key);
 }
 
 export function absolutePath(path: string, cwd: string | null, home: string = homedir()): string {
@@ -107,7 +108,7 @@ type Classified =
   | { readonly kind: "other" };
 
 /** Which user entries are the human's own words: the prototype's rules, kept as the oracle. */
-export function classifyUserEntry(entry: JsonRecord): Classified {
+export function classifyUserEntry(entry: JsonObject): Classified {
   if (entry["toolUseResult"] !== undefined) {
     return { kind: "other" };
   }
@@ -116,7 +117,7 @@ export function classifyUserEntry(entry: JsonRecord): Classified {
     return { kind: "other" };
   }
 
-  if (stringField(entry, "entrypoint") === "sdk-cli" || stringField(entry, "promptSource") === "sdk") {
+  if (textField(entry, "entrypoint") === "sdk-cli" || textField(entry, "promptSource") === "sdk") {
     return { kind: "other" };
   }
 
@@ -129,7 +130,7 @@ export function classifyUserEntry(entry: JsonRecord): Classified {
 
   const origin = recordField(entry, "origin");
 
-  if (origin === null || stringField(origin, "kind") !== "human") {
+  if (origin === null || textField(origin, "kind") !== "human") {
     return { kind: "other" };
   }
 
@@ -159,14 +160,14 @@ type PendingTool = {
   readonly sessionId: string;
   readonly timestamp: string;
   readonly tool: string;
-  readonly input: JsonRecord;
+  readonly input: JsonObject;
 };
 
-function required(entry: JsonRecord, key: string, path: string): string {
-  const value = stringField(entry, key);
+function required(entry: JsonObject, key: string, path: string): string {
+  const value = textField(entry, key);
 
   if (value === null) {
-    throw new Error(`${path}: ${stringField(entry, "type")} entry without "${key}"`);
+    throw new Error(`${path}: ${textField(entry, "type")} entry without "${key}"`);
   }
 
   return value;
@@ -193,16 +194,16 @@ async function scanFile(path: string, home: string): Promise<Scan> {
     loadedRules.set(`${rule.source}\0${rule.path}\0${rule.content ?? ""}`, rule);
   };
 
-  const onAssistant = (entry: JsonRecord): void => {
+  const onAssistant = (entry: JsonObject): void => {
     const message = recordField(entry, "message");
 
     for (const block of message === null ? [] : recordsField(message, "content")) {
-      if (stringField(block, "type") !== "tool_use") {
+      if (textField(block, "type") !== "tool_use") {
         continue;
       }
 
-      const id = stringField(block, "id");
-      const name = stringField(block, "name");
+      const id = textField(block, "id");
+      const name = textField(block, "name");
 
       if (id === null || name === null) {
         continue;
@@ -218,8 +219,8 @@ async function scanFile(path: string, home: string): Promise<Scan> {
     }
   };
 
-  const onToolResult = (entry: JsonRecord, block: JsonRecord): void => {
-    const toolUseId = stringField(block, "tool_use_id");
+  const onToolResult = (entry: JsonObject, block: JsonObject): void => {
+    const toolUseId = textField(block, "tool_use_id");
     const call = toolUseId === null ? null : (pending.get(toolUseId) ?? null);
 
     if (call === null || toolUseId === null) {
@@ -227,7 +228,7 @@ async function scanFile(path: string, home: string): Promise<Scan> {
     }
 
     pending.delete(toolUseId);
-    const denial = stringField(entry, "toolDenialKind");
+    const denial = textField(entry, "toolDenialKind");
     const isError = block["is_error"] === true;
     events.push({
       kind: "tool",
@@ -243,11 +244,11 @@ async function scanFile(path: string, home: string): Promise<Scan> {
     });
   };
 
-  const onUser = (entry: JsonRecord): void => {
+  const onUser = (entry: JsonObject): void => {
     const message = recordField(entry, "message");
 
     const results = (message === null ? [] : recordsField(message, "content")).filter(
-      (block) => stringField(block, "type") === "tool_result",
+      (block) => textField(block, "type") === "tool_result",
     );
 
     if (results.length > 0) {
@@ -273,20 +274,21 @@ async function scanFile(path: string, home: string): Promise<Scan> {
     }
   };
 
-  const onAttachment = (entry: JsonRecord): void => {
+  const onAttachment = (entry: JsonObject): void => {
     const attachment = recordField(entry, "attachment");
+    const type = textField(attachment, "type");
 
-    if (attachment === null) {
+    if (attachment === null || type === null) {
       return;
     }
 
-    switch (stringField(attachment, "type")) {
+    switch (type) {
       case "instructions": {
         for (const file of recordsField(attachment, "files")) {
-          const filePath = stringField(file, "path");
+          const filePath = textField(file, "path");
 
           if (filePath !== null) {
-            load({ path: filePath, source: "instructions", content: stringField(file, "content") });
+            load({ path: filePath, source: "instructions", content: textField(file, "content") });
           }
         }
 
@@ -294,9 +296,9 @@ async function scanFile(path: string, home: string): Promise<Scan> {
       }
 
       case "nested_memory": {
-        const filePath = stringField(attachment, "path");
+        const filePath = textField(attachment, "path");
         const content = attachment["content"];
-        const text = typeof content === "string" ? content : isRecord(content) ? stringField(content, "content") : null;
+        const text = isString(content) ? content : textField(content, "content");
 
         if (filePath !== null) {
           load({ path: filePath, source: "nested_memory", content: text });
@@ -307,13 +309,13 @@ async function scanFile(path: string, home: string): Promise<Scan> {
 
       case "output_style_instructions": {
         const style = recordField(attachment, "style");
-        const name = style === null ? null : stringField(style, "name");
+        const name = style === null ? null : textField(style, "name");
 
         if (style === null || name === null) {
           return;
         }
 
-        const entryCwd = stringField(entry, "cwd") ?? cwd;
+        const entryCwd = textField(entry, "cwd") ?? cwd;
 
         const styleDirs = [
           ...(entryCwd === null ? [] : [join(entryCwd, ".claude", "output-styles")]),
@@ -323,7 +325,7 @@ async function scanFile(path: string, home: string): Promise<Scan> {
         load({
           path: resolveOutputStylePath(name, styleDirs),
           source: "output_style",
-          content: stringField(style, "prompt"),
+          content: textField(style, "prompt"),
         });
 
         return;
@@ -336,8 +338,8 @@ async function scanFile(path: string, home: string): Promise<Scan> {
   };
 
   await forEachEntry(path, (entry) => {
-    const type = stringField(entry, "type");
-    const timestamp = stringField(entry, "timestamp");
+    const type = textField(entry, "type");
+    const timestamp = textField(entry, "timestamp");
 
     if (timestamp !== null) {
       if (firstAt === null || timestamp < firstAt) {
@@ -349,14 +351,18 @@ async function scanFile(path: string, home: string): Promise<Scan> {
       }
     }
 
-    if (stringField(entry, "entrypoint") === "sdk-cli") {
+    if (textField(entry, "entrypoint") === "sdk-cli") {
       sdk = true;
     }
 
-    sessionId ??= stringField(entry, "sessionId");
+    sessionId ??= textField(entry, "sessionId");
 
     if (cwd === null && (type === "user" || type === "assistant")) {
-      cwd = stringField(entry, "cwd");
+      cwd = textField(entry, "cwd");
+    }
+
+    if (type === null) {
+      return;
     }
 
     switch (type) {
@@ -379,7 +385,7 @@ async function scanFile(path: string, home: string): Promise<Scan> {
       }
 
       case "continued-in": {
-        continuedIn = stringField(entry, "continuedInSessionId") ?? continuedIn;
+        continuedIn = textField(entry, "continuedInSessionId") ?? continuedIn;
 
         return;
       }
@@ -429,16 +435,24 @@ async function continuations(projectDir: string): Promise<ReadonlyMap<string, st
   return links;
 }
 
+function predecessorOf(
+  links: ReadonlyMap<string, string>,
+  target: string,
+  seen: ReadonlySet<string>,
+): string | undefined {
+  return [...links].find(([from, to]) => to === target && !seen.has(from))?.[0];
+}
+
 async function predecessors(projectDir: string, sessionId: string, seen: Set<string>): Promise<readonly string[]> {
   const links = await continuations(projectDir);
   const chain: string[] = [];
   let target = sessionId;
 
   for (;;) {
-    const found = [...links].find(([from, to]) => to === target && !seen.has(from))?.[0];
+    const found = predecessorOf(links, target, seen);
 
     if (found === undefined) {
-      return chain.reverse();
+      return chain.toReversed();
     }
 
     seen.add(found);
@@ -462,11 +476,7 @@ export async function readSession(
   const projectDir = join(file, "..");
   const seen = new Set([sessionId]);
   const chain = [...(await predecessors(projectDir, sessionId, seen)), sessionId];
-  const scans: Scan[] = [];
-
-  for (const id of chain) {
-    scans.push(await scanFile(join(projectDir, `${id}.jsonl`), home));
-  }
+  const scans = await Promise.all(chain.map(async (id) => scanFile(join(projectDir, `${id}.jsonl`), home)));
 
   const rules = new Map<string, LoadedRule>();
 
@@ -477,7 +487,7 @@ export async function readSession(
   const instants = scans
     .flatMap((scan) => [scan.firstAt, scan.lastAt])
     .filter((at): at is string => at !== null)
-    .sort();
+    .toSorted();
 
   return {
     sessionId,

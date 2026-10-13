@@ -1,7 +1,7 @@
 import type { HindsightConfig } from "../domain/config.ts";
 import type { ProposalState } from "../domain/proposal.ts";
 import type { ApplyResult, TextEdit } from "../rules/apply.ts";
-import type { StoreShape, SyncStore } from "../store/db.ts";
+import type { StoreService, SyncStore } from "../store/db.ts";
 import type { Change, Evidence, Prevalence, ProposalRow } from "../store/queries.ts";
 
 import { Effect } from "effect";
@@ -170,7 +170,7 @@ function recordDecision(
   setState(db, item.id, decision);
 }
 
-const loadPending = (store: StoreShape, id: string) =>
+const loadPending = (store: StoreService, id: string) =>
   store.transaction((db) => {
     const row = db.get<ProposalRow>("SELECT * FROM proposals WHERE id = ?", [id]);
 
@@ -193,7 +193,7 @@ function rawExcerpts(db: SyncStore, row: ProposalRow): string[] {
 }
 
 /** Takes the Proposal for this accept before any file changes: a second accept, concurrent or later, finds it taken. */
-const reserveAccept = (store: StoreShape, id: string, nowIso: string) =>
+const reserveAccept = (store: StoreService, id: string, nowIso: string) =>
   store.transaction((db) => {
     const row = db.get<ProposalRow>("SELECT * FROM proposals WHERE id = ? AND state = 'pending'", [id]);
 
@@ -207,7 +207,7 @@ const reserveAccept = (store: StoreShape, id: string, nowIso: string) =>
     return { item, excerpts: rawExcerpts(db, row) };
   });
 
-const releaseAccept = (store: StoreShape, id: string) =>
+const releaseAccept = (store: StoreService, id: string) =>
   store.transaction((db) => {
     db.run("DELETE FROM decisions WHERE proposal_id = ? AND decision = 'accepted' AND commit_sha IS NULL", [id]);
     setState(db, id, "pending");

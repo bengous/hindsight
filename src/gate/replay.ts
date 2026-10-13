@@ -7,8 +7,8 @@ import { join } from "node:path";
 
 import { addHumanText, addToolUses, emptyFacts, markInterrupted } from "../domain/facts.ts";
 import { gateBrief, gatePasses, gateSignals, gateSkip } from "../domain/gate.ts";
+import { textField } from "../domain/json.ts";
 import { utcDay } from "../domain/text.ts";
-import { stringField } from "../transcripts/json.ts";
 import { editedPath, scanSessionFile } from "../transcripts/session.ts";
 
 export type ReplayReport = {
@@ -30,7 +30,7 @@ export function toToolUse(event: ToolEvent): ToolUse {
   return {
     tool: event.tool,
     path: editedPath(event),
-    command: stringField(event.input, "command"),
+    command: textField(event.input, "command"),
     isError: event.isError,
     isRefused: event.isRefused,
   };
@@ -194,8 +194,9 @@ export async function replayGate(projectsDir: string, days: number, config: Hind
     }
   }
 
-  for (const path of paths.sort()) {
+  for (const path of paths.toSorted()) {
     files += 1;
+    // oxlint-disable-next-line eslint/no-await-in-loop -- a replay spans days of transcripts: scanning them all at once would hold every record in memory.
     const record = await scanSessionFile(path);
 
     if (record === null || record.cwd === null || record.cwd.startsWith(SCRATCH_PREFIX)) {

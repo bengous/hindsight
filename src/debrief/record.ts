@@ -219,11 +219,9 @@ function storeObservation(ctx: Context, note: ObservationNote, tools: readonly T
   return true;
 }
 
-function storeStaleRule(
-  ctx: Context,
-  note: StaleRuleNote,
-  tools: readonly ToolEvent[],
-): { note: boolean; proposal: boolean } {
+type StaleRuleStored = { readonly note: boolean; readonly proposal: boolean };
+
+function storeStaleRule(ctx: Context, note: StaleRuleNote, tools: readonly ToolEvent[]): StaleRuleStored {
   const edit = locateEdit(tools, note, ctx.session.cwd);
 
   if (edit === null) {
