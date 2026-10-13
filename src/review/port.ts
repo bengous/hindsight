@@ -14,6 +14,18 @@ import { newId } from "../platform/ids.ts";
 import { applyChange, editedText } from "../rules/apply.ts";
 import { Store } from "../store/db.ts";
 import { decodeChange, decodeEvidence, decodePrevalence, decodeState } from "../store/proposal.ts";
+import {
+  deleteUncommittedAccept,
+  getPendingProposal,
+  getProposal,
+  handedOffWithoutHandoff,
+  insertDecision,
+  insertHandoff,
+  messageText,
+  pendingProposals,
+  setDecisionCommit,
+  setProposalState,
+} from "../store/queries.ts";
 
 /** One Proposal as the Review shows it; the surface (pane today, a page later) only draws it. */
 export type ReviewItem = {
@@ -69,10 +81,7 @@ export const readFileOrNull: ReadFile = (path) => (existsSync(path) ? readFileSy
 
 export function toReviewItem(row: ProposalRow, db: SyncStore): ReviewItem {
   const evidence = decodeEvidence(row.evidence_json).map((item): ReviewEvidence => {
-    const message =
-      item.kind === "quote"
-        ? (db.get<{ text: string }>("SELECT text FROM messages WHERE evidence_id = ?", [item.evidenceId])?.text ?? null)
-        : null;
+    const message = item.kind === "quote" ? messageText(db, item.evidenceId) : null;
 
     return {
       evidenceId: item.evidenceId,
@@ -104,15 +113,11 @@ export function toReviewItem(row: ProposalRow, db: SyncStore): ReviewItem {
   };
 }
 
-function setState(db: SyncStore, id: string, state: ProposalState): void {
-  db.run("UPDATE proposals SET state = ? WHERE id = ?", [state, id]);
-}
-
 type Settled = { readonly expired: number; readonly superseded: number };
 
 /** An edit whose old text no longer applies expires; of two pending Proposals on the same text, the newer stays. */
 export function settlePending(db: SyncStore, readFile: ReadFile): Settled {
-  const rows = db.all<ProposalRow>("SELECT * FROM proposals WHERE state = 'pending' ORDER BY created_at DESC");
+  const rows = pendingProposals(db);
   let expired = 0;
   let superseded = 0;
   const seen = new Set<string>();
@@ -122,7 +127,7 @@ export function settlePending(db: SyncStore, readFile: ReadFile): Settled {
     const key = `${row.target_path}\0${row.bullet_id ?? (change.kind === "edit" ? (change.edits[0]?.oldText ?? "") : row.id)}`;
 
     if (seen.has(key)) {
-      setState(db, row.id, "superseded");
+      setProposalState(db, row.id, "superseded");
       superseded += 1;
       continue;
     }
@@ -133,7 +138,7 @@ export function settlePending(db: SyncStore, readFile: ReadFile): Settled {
       const text = readFile(row.target_path);
 
       if (text === null || editedText(text, change.edits).kind === "refused") {
-        setState(db, row.id, "expired");
+        setProposalState(db, row.id, "expired");
         expired += 1;
       }
     }
@@ -152,7 +157,7 @@ export const listReview = (
 
     return yield* store.transaction((db) => {
       const settled = settlePending(db, readFile);
-      const rows = db.all<ProposalRow>("SELECT * FROM proposals WHERE state = 'pending'");
+      const rows = pendingProposals(db);
 
       const items = rows
         .map((row) => toReviewItem(row, db))
@@ -172,25 +177,21 @@ function recordDecision(
   details: { reason: string | null; edits: readonly TextEdit[] | null; commit: string | null },
   at: string,
 ): void {
-  db.run(
-    "INSERT INTO decisions (proposal_id, fingerprint, at, decision, reason, edited_change_json, sessions_at_decision, commit_sha) VALUES (?, (SELECT fingerprint FROM proposals WHERE id = ?), ?, ?, ?, ?, ?, ?)",
-    [
-      item.id,
-      item.id,
-      at,
-      decision,
-      details.reason,
-      details.edits === null ? null : JSON.stringify({ kind: "edit", edits: details.edits }),
-      item.prevalence.sessions,
-      details.commit,
-    ],
-  );
-  setState(db, item.id, decision);
+  insertDecision(db, {
+    proposalId: item.id,
+    at,
+    decision,
+    reason: details.reason,
+    editedChange: details.edits === null ? null : { kind: "edit", edits: details.edits },
+    sessionsAtDecision: item.prevalence.sessions,
+    commitSha: details.commit,
+  });
+  setProposalState(db, item.id, decision);
 }
 
 const loadPending = (store: StoreService, id: string): Effect.Effect<ReviewItem | null, StoreError> =>
   store.transaction((db) => {
-    const row = db.get<ProposalRow>("SELECT * FROM proposals WHERE id = ?", [id]);
+    const row = getProposal(db, id);
 
     return row === null ? null : toReviewItem(row, db);
   });
@@ -202,9 +203,9 @@ function rawExcerpts(db: SyncStore, row: ProposalRow): string[] {
   const messages = evidence
     .filter((item) => item.kind === "quote")
     .flatMap((item) => {
-      const found = db.get<{ text: string }>("SELECT text FROM messages WHERE evidence_id = ?", [item.evidenceId]);
+      const found = messageText(db, item.evidenceId);
 
-      return found === null ? [] : [found.text];
+      return found === null ? [] : [found];
     });
 
   return [...evidence.map((item) => item.text), ...messages];
@@ -219,7 +220,7 @@ const reserveAccept = (
   nowIso: string,
 ): Effect.Effect<ReservedAccept | null, StoreError> =>
   store.transaction((db) => {
-    const row = db.get<ProposalRow>("SELECT * FROM proposals WHERE id = ? AND state = 'pending'", [id]);
+    const row = getPendingProposal(db, id);
 
     if (row === null) {
       return null;
@@ -233,8 +234,8 @@ const reserveAccept = (
 
 const releaseAccept = (store: StoreService, id: string): Effect.Effect<void, StoreError> =>
   store.transaction((db) => {
-    db.run("DELETE FROM decisions WHERE proposal_id = ? AND decision = 'accepted' AND commit_sha IS NULL", [id]);
-    setState(db, id, "pending");
+    deleteUncommittedAccept(db, id);
+    setProposalState(db, id, "pending");
   });
 
 /** The one place a Decision is taken: accept applies and commits, reject needs a reason, handoff marks. */
@@ -311,13 +312,11 @@ export const decideProposal = (
         }
 
         yield* store.transaction((db) =>
-          db.run(
-            "UPDATE decisions SET commit_sha = ?, edited_change_json = ? WHERE proposal_id = ? AND decision = 'accepted'",
-            [
-              apply.kind === "committed" ? apply.commit : `written:${apply.path}`,
-              decision.edits === null ? null : JSON.stringify({ kind: "edit", edits: decision.edits }),
-              id,
-            ],
+          setDecisionCommit(
+            db,
+            id,
+            apply.kind === "committed" ? apply.commit : `written:${apply.path}`,
+            decision.edits === null ? null : { kind: "edit", edits: decision.edits },
           ),
         );
 
@@ -352,11 +351,7 @@ export const prepareHandoff = (
     const store = yield* Store;
 
     return yield* store.transaction((db) => {
-      const rows = db.all<ProposalRow>(
-        `SELECT * FROM proposals WHERE state = 'handed_off' AND id NOT IN (
-           SELECT value FROM handoffs, json_each(handoffs.proposal_ids_json)
-         ) ORDER BY created_at`,
-      );
+      const rows = handedOffWithoutHandoff(db);
 
       if (rows.length === 0) {
         return { id: null, instructions: null, proposals: 0 };
@@ -376,12 +371,7 @@ export const prepareHandoff = (
       ].join("\n");
 
       const id = newId();
-      db.run("INSERT INTO handoffs (id, created_at, proposal_ids_json, instructions) VALUES (?, ?, ?, ?)", [
-        id,
-        nowIso,
-        JSON.stringify(items.map((item) => item.id)),
-        instructions,
-      ]);
+      insertHandoff(db, { id, createdAt: nowIso, proposalIds: items.map((item) => item.id), instructions });
 
       return { id, instructions, proposals: items.length };
     });

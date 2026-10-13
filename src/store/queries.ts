@@ -1,4 +1,4 @@
-import type { Change, Evidence, Prevalence, Verdict } from "../domain/proposal.ts";
+import type { Change, Evidence, Prevalence, ProposalState, Verdict } from "../domain/proposal.ts";
 import type { SyncStore } from "./db.ts";
 
 export type DebriefStatus = "started" | "recorded" | "aborted" | "failed";
@@ -205,8 +205,154 @@ export function pendingProposalByFingerprint(db: SyncStore, fingerprint: string)
   return db.get<ProposalRow>("SELECT * FROM proposals WHERE fingerprint = ? AND state = 'pending'", [fingerprint]);
 }
 
+export function getProposal(db: SyncStore, id: string): ProposalRow | null {
+  return db.get<ProposalRow>("SELECT * FROM proposals WHERE id = ?", [id]);
+}
+
+export function getPendingProposal(db: SyncStore, id: string): ProposalRow | null {
+  return db.get<ProposalRow>("SELECT * FROM proposals WHERE id = ? AND state = 'pending'", [id]);
+}
+
+/** Every pending Proposal, newest first. */
+export function pendingProposals(db: SyncStore): ProposalRow[] {
+  return db.all<ProposalRow>("SELECT * FROM proposals WHERE state = 'pending' ORDER BY created_at DESC");
+}
+
+export function setProposalState(db: SyncStore, id: string, state: ProposalState): void {
+  db.run("UPDATE proposals SET state = ? WHERE id = ?", [state, id]);
+}
+
+/** The Human Message an evidence id cites, as the Debrief stored it; null when none was kept. */
+export function messageText(db: SyncStore, evidenceId: string): string | null {
+  return db.get<{ text: string }>("SELECT text FROM messages WHERE evidence_id = ?", [evidenceId])?.text ?? null;
+}
+
+export function insertDecision(
+  db: SyncStore,
+  row: {
+    proposalId: string;
+    at: string;
+    decision: "accepted" | "rejected" | "handed_off";
+    reason: string | null;
+    editedChange: Change | null;
+    sessionsAtDecision: number;
+    commitSha: string | null;
+  },
+): void {
+  db.run(
+    "INSERT INTO decisions (proposal_id, fingerprint, at, decision, reason, edited_change_json, sessions_at_decision, commit_sha) VALUES (?, (SELECT fingerprint FROM proposals WHERE id = ?), ?, ?, ?, ?, ?, ?)",
+    [
+      row.proposalId,
+      row.proposalId,
+      row.at,
+      row.decision,
+      row.reason,
+      row.editedChange === null ? null : JSON.stringify(row.editedChange),
+      row.sessionsAtDecision,
+      row.commitSha,
+    ],
+  );
+}
+
+/** Drops the accept that reserved a Proposal and never reached a commit. */
+export function deleteUncommittedAccept(db: SyncStore, proposalId: string): void {
+  db.run("DELETE FROM decisions WHERE proposal_id = ? AND decision = 'accepted' AND commit_sha IS NULL", [proposalId]);
+}
+
+export function setDecisionCommit(
+  db: SyncStore,
+  proposalId: string,
+  commitSha: string,
+  editedChange: Change | null,
+): void {
+  db.run(
+    "UPDATE decisions SET commit_sha = ?, edited_change_json = ? WHERE proposal_id = ? AND decision = 'accepted'",
+    [commitSha, editedChange === null ? null : JSON.stringify(editedChange), proposalId],
+  );
+}
+
+/** The handed-off Proposals no Handoff has carried yet, oldest first. */
+export function handedOffWithoutHandoff(db: SyncStore): ProposalRow[] {
+  return db.all<ProposalRow>(
+    `SELECT * FROM proposals WHERE state = 'handed_off' AND id NOT IN (
+       SELECT value FROM handoffs, json_each(handoffs.proposal_ids_json)
+     ) ORDER BY created_at`,
+  );
+}
+
+export function insertHandoff(
+  db: SyncStore,
+  row: { id: string; createdAt: string; proposalIds: readonly string[]; instructions: string },
+): void {
+  db.run("INSERT INTO handoffs (id, created_at, proposal_ids_json, instructions) VALUES (?, ?, ?, ?)", [
+    row.id,
+    row.createdAt,
+    JSON.stringify(row.proposalIds),
+    row.instructions,
+  ]);
+}
+
 export function countPendingNotes(db: SyncStore): number {
   return db.get<{ n: number }>("SELECT COUNT(*) AS n FROM notes WHERE status = 'pending'")?.n ?? 0;
+}
+
+export function countPendingProposals(db: SyncStore): number {
+  return db.get<{ n: number }>("SELECT COUNT(*) AS n FROM proposals WHERE state = 'pending'")?.n ?? 0;
+}
+
+export type StatusSnapshot = {
+  readonly debriefs: Readonly<Record<string, number>>;
+  readonly cacheShare: { readonly min: number | null; readonly mean: number | null };
+  readonly failures: ReadonlyArray<{ readonly id: string; readonly failure: string }>;
+  readonly pendingProposals: number;
+  readonly gate: Readonly<Record<string, number>>;
+  readonly learn: { readonly runs: number; readonly costUsd: number; readonly running: boolean };
+};
+
+/** The aggregates `hindsight status` prints: Debriefs by status and their cache share, the ten last failures, Gate decisions, Learn runs. */
+export function statusSnapshot(db: SyncStore): StatusSnapshot {
+  const debriefs: Record<string, number> = {};
+
+  for (const row of db.all<{ status: string; n: number }>(
+    "SELECT status, COUNT(*) AS n FROM debriefs GROUP BY status",
+  )) {
+    debriefs[row.status] = row.n;
+  }
+
+  const share = db.get<{ min: number | null; mean: number | null }>(
+    "SELECT MIN(cache_share) AS min, AVG(cache_share) AS mean FROM debriefs WHERE status = 'recorded'",
+  );
+
+  const gate: Record<string, number> = {};
+
+  for (const row of db.all<{ key: string; n: number }>(
+    "SELECT decision || COALESCE(':' || reason, '') AS key, COUNT(*) AS n FROM gate_decisions GROUP BY key",
+  )) {
+    gate[row.key] = row.n;
+  }
+
+  const learn = db.get<{ runs: number; cost: number | null; running: number }>(
+    "SELECT COUNT(*) AS runs, SUM(cost_usd) AS cost, SUM(status = 'running') AS running FROM learn_runs",
+  );
+
+  return {
+    debriefs,
+    cacheShare: { min: share?.min ?? null, mean: share?.mean ?? null },
+    failures: db.all<{ id: string; failure: string }>(
+      "SELECT id, failure FROM debriefs WHERE status = 'failed' ORDER BY started_at DESC LIMIT 10",
+    ),
+    pendingProposals: countPendingProposals(db),
+    gate,
+    learn: { runs: learn?.runs ?? 0, costUsd: learn?.cost ?? 0, running: (learn?.running ?? 0) > 0 },
+  };
+}
+
+export function knownRepoRoots(db: SyncStore): string[] {
+  return db
+    .all<{ repo_root: string }>(
+      "SELECT DISTINCT repo_root FROM notes WHERE repo_root IS NOT NULL UNION SELECT DISTINCT repo_root FROM proposals WHERE repo_root IS NOT NULL",
+    )
+    .map((row) => row.repo_root);
 }
 
 export function insertGateDecision(

@@ -11,7 +11,7 @@ import { newId, sha1 } from "../platform/ids.ts";
 import { inventory } from "../rules/inventory.ts";
 import { staleScan } from "../rules/stale.ts";
 import { Store } from "../store/db.ts";
-import { insertProposal, pendingFingerprints, rejectedSessions } from "../store/queries.ts";
+import { insertProposal, knownRepoRoots, pendingFingerprints, rejectedSessions } from "../store/queries.ts";
 
 export type PruneReport = {
   readonly repos: number;
@@ -100,9 +100,5 @@ export const prune = (
 export const knownRepos = Effect.gen(function* () {
   const store = yield* Store;
 
-  const rows = yield* store.all<{ repo_root: string }>(
-    "SELECT DISTINCT repo_root FROM notes WHERE repo_root IS NOT NULL UNION SELECT DISTINCT repo_root FROM proposals WHERE repo_root IS NOT NULL",
-  );
-
-  return rows.map((row) => row.repo_root);
+  return yield* store.transaction(knownRepoRoots);
 });
