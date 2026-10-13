@@ -1,0 +1,9 @@
+{
+  "name": "hindsight",
+  "owner": {
+    "name": "Augustin BENGOLEA",
+    "email": "bengous@protonmail.com"
+  },
+  "description": "The hindsight mod, read from its own checkout",
+  "plugins": [{ "name": "hindsight", "source": "./" }]
+}

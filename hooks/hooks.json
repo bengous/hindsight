@@ -1,0 +1,4 @@
+{
+  "description": "Runs the Debrief Gate at the end of a turn, forks the Debrief on the session's cache, shows the Notice at session start, and serves the /hindsight commands and the Review pane; every write goes through the hindsight CLI",
+  "modules": ["../src/mod/register.ts"]
+}
