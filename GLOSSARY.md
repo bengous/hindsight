@@ -102,7 +102,7 @@ _Avoid_: cleanup, audit, recheck
 
 **Proposal**:
 One reviewable change, with its target, its evidence and its reasoning: an exact edit of one rule file, or a description that only a handoff can carry out. A proposal is pending until the human accepts it, rejects it or adds it to a handoff; it is superseded when a newer proposal targets the same rule, and expired when the rule changed so the change no longer applies.
-_Avoid_: card (the review page's display of a proposal), suggestion, candidate, finding
+_Avoid_: card (the review surface's display of a proposal), suggestion, candidate, finding
 
 **Handoff**:
 Proposals that the human gives to an agent session the human starts, for changes an exact text edit cannot make. Without a handoff, an accepted proposal is applied as one commit, or as one write of a global rule file outside any repository.
@@ -113,7 +113,7 @@ The line shown to the human, never to the agent, at the start of a session when 
 _Avoid_: notification, reminder, nudge
 
 **Review**:
-The human's pass over pending proposals on hindsight's local page, where each decision is taken.
+The human's pass over pending proposals on hindsight's local surface (the pane in the session, or a page), where each decision is taken.
 _Avoid_: round, approval, triage
 
 **Decision**:

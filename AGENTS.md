@@ -1,23 +1,30 @@
 # hindsight
 
-[SPEC.md](SPEC.md) defines the target system, [GLOSSARY.md](GLOSSARY.md) its vocabulary, [docs/adr/](docs/adr/) the decisions that are hard to reverse. `src/` holds the prototype described below; where the two disagree, SPEC.md wins.
+[SPEC.md](SPEC.md) defines the system, [GLOSSARY.md](GLOSSARY.md) its vocabulary, [docs/adr/](docs/adr/) the decisions that are hard to reverse. Where code and SPEC.md disagree, SPEC.md wins.
 
-Out-of-band curation of agent rules. `hindsight run` reads recent Claude Code transcripts and the current rule files (AGENTS.md, CLAUDE.md, `.claude/rules/`), finds patterns that recur across sessions, verifies them against the code, and writes proposals with evidence. `hindsight review` serves a local page where the human accepts or rejects each proposal; an accepted proposal becomes one git commit in the target repo.
+Out-of-band upkeep of the Rule Files coding agents load. A Claude Code mod runs the Debrief Gate at the end of a turn and forks the Debrief on the session's own prompt cache; the hindsight CLI verifies and stores the Notes, runs Learn and Prune, and takes every Decision of the Review; the mod only draws.
 
 ## Invariants
 
-- Nothing reaches a rule file without a human decision on the review page.
-- Only human-typed text can become a correction. Tool output, peer messages, skill bodies and foreign pastes never do.
-- Learn's model calls are pure I/O (`claude -p`, no tools, JSON schema out). The Debrief Gate and the Debrief run in a Claude Code mod (ADR 0004): the Gate's classifier is a `$.model.classify` call, and the Debrief a `$.model.fork`, which keeps the session's model, system prompt and tools, denies every tool and answers in text. The hindsight CLI owns every write.
-- Evidence ids (`<sessionId>:<uuid>`, `mem:<path>`) are minted by the code. An extracted quote must be a verbatim substring of a human message of its batch: the code locates it and cites that message, the earliest when the human repeated it. An item whose quote matches no message is dropped and counted. A curator output citing an unknown id fails the batch.
-- Prevalence is computed by the code, never by a model.
-- Transcript excerpts stay in `~/.local/state/hindsight/` (mode 0700). They never reach a commit, a fixture or a log outside it.
+- Nothing reaches a Rule File without a human Decision through `review decide`.
+- Only human-typed text can become a Quote. Tool output, peer messages, skill bodies and foreign pastes never do; the mod captures the human's own text at `prompt.submit` (origins `composer` and `bridge`) and `cleanHumanText` drops the rest.
+- Nothing of hindsight enters an agent's context: `/hindsight` commands answer `{}`, `turn.complete` returns what came, no `additionalContext`. The human sees the status line, toasts and the pane; only `/hindsight handoff` fills the prompt, and the human sends it.
+- The Debrief is `$.model.fork` on the session's cache; a share under the configured floor is a failed Debrief, never a cost to absorb. Learn's calls are `claude -p --json-schema` on Opus, without tools and without a fallback model.
+- Evidence ids (`<sessionId>:<uuid>`) are minted by the code. A Quote must occur word for word in a Human Message of the session (the earliest is cited), an Observation must match a real tool entry by name and excerpt, a Stale Rule must match a real edit the file still holds; what fails is counted on the debrief row, never stored.
+- Prevalence is computed by the code, never by a model. A rejected fingerprint returns only with more sessions than at the rejection.
+- Transcript text stays in `$XDG_STATE_HOME/hindsight` (0700, database 0600). A commit message carries the subject, the lesson, the evidence counts and the proposal id, never a Quote; `applyChange` refuses a message that holds one.
+- `src/domain/` imports no Node, Bun, npm or Effect module: the mod has no Node. `rg -n 'from "(node:|bun:|effect)|\bBun\.' src/domain -g '!*.spec.ts'` finds nothing.
+- `src/mod/register.ts` is the only file that touches `$`; every function that receives `$` sits at its top level; the rest of `src/mod` reads a `Host`.
 - Fixtures are synthetic. Never copy a real transcript line into the repo.
 
 ## Layout
 
-`src/types.ts` holds the contracts between modules. Each directory under `src/` owns one stage: `transcripts/` (reading), `signals/` (deterministic features and error clusters), `rules/` (inventory, stale scan, apply), `model/` (the `claude -p` runner), `curate/` (extraction, clustering, evidence gate), `state/`, `review/` (the page).
+- `src/domain/`: shared pure core: `TurnFacts`, Gate signals and skips, human text cleaning and markers, Debrief prompt and parser, Proposal states, config defaults, secrets masking, diff text.
+- `src/mod/`: the Claude Code mod (`hooks/hooks.json` → `register.ts`), its `Host`, the CLI client, the Gate and Debrief orchestration, the Notice, the Review pane. Engine types are pinned in `types/claude-code.d.ts`; `tsconfig.mod.json` type-checks it without DOM. Kit tests are `*.test.ts` under `src/mod/` (`claude plugin test .`), excluded from `bun test`.
+- `src/cli/`: `main.ts` and the Effect commands: `config`, `status`, `doctor`, `gate log|replay`, `debrief start|record`, `learn`, `prune`, `review list|decide`, `handoff prepare`. Every command prints one JSON line.
+- `src/store/`: the `bun:sqlite` Store service, migrations, queries. `src/transcripts/`: JSONL reading, one session with its continuations. `src/debrief/`: verification and storage of a Debrief's answer. `src/gate/`: the replay. `src/learn/`: schema, prompt, code gates, `claude -p` runner, Learn and Prune. `src/rules/`: inventory, markdown, globs, stale checks, apply and commit. `src/review/`: the output port.
+- `plans/`: session records of the v2 pass.
 
 ## Commands
 
-`bun test`, `bun run typecheck`, `bun run lint`, `bun run format`.
+`bun test`, `claude plugin test .`, `claude plugin validate .`, `bun run typecheck`, `bun run lint`, `bun run format`. Run the CLI with `bun src/cli/main.ts <command>`; a session with the mod: `claude --plugin-dir .`.

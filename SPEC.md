@@ -52,7 +52,7 @@ Debrief (fork reusing the session's cache)
 ### Debrief Gate
 
 - Runs at the end of every turn of the human's main interactive **Sessions** on the workstation. A **Session** started by a tool (hindsight's own forks included), a subagent, a background or a cloud session never opens it, nor does a repository the human excludes.
-- Works in two steps. First, code run by hindsight at the end of the turn decides quickly whether a **Debrief** may be worth it. Only when it may, a cheap model classifier reads that result and, when needed, the last messages of the **Session**, never the whole **Session**, and decides. Both steps are specified separately (see Deferred decisions).
+- Works in two steps. First, code run by hindsight at the end of the turn decides quickly whether a **Debrief** may be worth it. Only when it may, a cheap model classifier reads that result and, when needed, the last messages of the **Session**, never the whole **Session**, and decides. The code step accumulates the turn's facts since the previous **Debrief**, applies direct skips and scores signals against a threshold calibrated by replaying past **Transcripts**; every decision is journaled (ADR 0005).
 - Keeps **Debriefs** rare: a **Session** with many short exchanges does not get one per turn.
 - When it opens, it briefs the **Debrief** on what to look at in the turns it covers.
 - Adds nothing to the **Session** and never delays the working agent.
@@ -74,11 +74,11 @@ Debrief (fork reusing the session's cache)
 ### Notes
 
 - A **Note** is pending until **Learn** or **Prune** uses it in a **Proposal**, then used.
-- A **Note** that nothing uses within the lookback window expires. The window starts at 30 days.
+- A **Note** that nothing uses within the lookback window expires. The window is 30 days, configurable.
 
 ### Learn
 
-- Starts on its own, in the background, right after the **Debrief** that brings pending **Notes** past the threshold. Nothing runs on a calendar.
+- Starts on its own, in the background, right after the **Debrief** that brings pending **Notes** past the threshold (eight, and six hours since the previous run, both configurable). Nothing runs on a calendar. One run at a time.
 - Reads pending **Steers** and **Observations** across **Sessions**, the current **Rule Files**, the **Rules** each **Session** had loaded, and the **Ledger**.
 - Groups **Notes** by **Lesson**, counts **Prevalence**, and gives each group a **Verdict**: missing, ignored, misplaced, conflict, unclear or hold.
 - An **Observation** can carry a **Proposal** on its own when it is clear enough; a weaker one waits until it recurs, under the **Verdict** hold.
@@ -105,8 +105,8 @@ Debrief (fork reusing the session's cache)
 
 ### Review
 
-- A page served on the human's machine only.
-- Shows a few pending **Proposals** at a time, with no quota per kind of change, each on one screen: the target, the claim, the change, the reasoning and the evidence. Each **Quote** opens onto its full **Human Message**, with secrets masked.
+- A surface drawn on the human's machine only, behind one output port of the CLI: a pane in the Claude Code session first, a local page when one is wanted (ADR 0001).
+- Shows three pending **Proposals** per pass, sorted by **Prevalence** then by age, with no quota per kind of change, each on one screen: the target, the claim, the change, the reasoning and the evidence. Each **Quote** opens onto its full **Human Message**, with secrets masked.
 - Actions per **Proposal**: accept (one commit in the target repository, never pushed; for a global **Rule File** outside any repository, one write of that file), edit then accept, reject with a reason, or add to a **Handoff**.
 - Every **Decision**, adding a **Proposal** to a **Handoff** included, goes to the **Ledger**.
 
@@ -135,11 +135,10 @@ Debrief (fork reusing the session's cache)
 
 Each needs its own design session:
 
-- The **Debrief Gate**'s code and model classifier.
-- The threshold of pending **Notes** that starts **Learn**.
-- How many **Proposals** the **Review** shows at once, and in what order.
-- The technical design: modules, storage schema, process model.
+- A local page on the **Review**'s output port, beside the pane.
 - A later convergence with the sibling tool.
+
+Settled since the first draft, in ADR 0005 and in `AGENTS.md`: the **Debrief Gate**'s code and classifier, the thresholds of **Learn**, the size and order of a **Review** pass, and the technical design.
 
 ## Acceptance
 
