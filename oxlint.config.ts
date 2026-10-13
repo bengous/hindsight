@@ -1,20 +1,12 @@
 import type { DummyRuleMap } from "oxlint";
 
+import { readdirSync } from "node:fs";
 import { defineConfig } from "oxlint";
 
-const SRC_FOLDERS = [
-  "cli",
-  "debrief",
-  "domain",
-  "gate",
-  "learn",
-  "mod",
-  "platform",
-  "review",
-  "rules",
-  "store",
-  "transcripts",
-] as const;
+/** Read from disk, so a folder added to src/ is forbidden to the others at once and gets the empty allowlist below until it has its own. */
+const SRC_FOLDERS = readdirSync("src", { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name);
 
 /** Forbids `../<folder>/` for every src folder outside `allowed`: the allowlist of the layer map in docs/adr/0006. */
 const layer = (allowed: readonly string[], message: string): DummyRuleMap => ({
@@ -269,6 +261,11 @@ export default defineConfig({
       rules: { "import/no-default-export": "off" },
     },
     {
+      // First, so each folder's own override below wins: a folder without an allowlist imports nothing from src/.
+      files: ["src/**"],
+      rules: layer([], "This src folder has no allowlist: add its row to docs/adr/0006 and its override here."),
+    },
+    {
       files: ["src/domain/**"],
       rules: {
         ...NO_BUN_GLOBAL,
@@ -326,9 +323,16 @@ export default defineConfig({
       rules: layer(["domain", "store", "rules", "platform"], "A feature imports adapters, never another feature."),
     },
     {
+      files: ["src/cli/**"],
+      rules: layer(
+        SRC_FOLDERS.filter((folder) => folder !== "mod"),
+        "The CLI composes every layer but the mod: Bun does not resolve its claude-code import.",
+      ),
+    },
+    {
       // Last: a later override wins, and the specs import bun:test, fixtures/ and cross the layers by construction.
       files: ["src/**/*.spec.ts", "src/**/*.test.ts"],
-      rules: { "no-restricted-imports": "off" },
+      rules: { "no-restricted-imports": "off", "no-restricted-globals": "off" },
     },
     {
       // AGENTS.md: src/domain and src/mod import no Effect, so they can neither match with Match nor parse with Schema.

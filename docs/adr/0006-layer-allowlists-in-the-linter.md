@@ -1,6 +1,6 @@
 # Layer allowlists in the linter, and one owner for the Proposal contract
 
-`src/` is a layered graph: a pure domain, adapters over it, features over the adapters, and the CLI as the composition root that nobody imports. Each folder has an allowlist of the folders it may import, and `bun run lint` holds it through `no-restricted-imports` overrides in `oxlint.config.ts`, one per folder. The `Bun` global needs no import, so `domain` and `mod` also carry `no-restricted-globals` on it: the mod loads them without Bun. Specs are exempt: they import `bun:test` and `fixtures/` and cross the layers by construction.
+`src/` is a layered graph: a pure domain, adapters over it, features over the adapters, and the CLI as the composition root that nobody imports. Each folder has an allowlist of the folders it may import, and `bun run lint` holds it through `no-restricted-imports` overrides in `oxlint.config.ts`, one per folder. The folder list is read from `src/` when the linter loads, and a folder without an override of its own imports nothing from `src/`: adding a folder means writing its row here and its override there. The `Bun` global needs no import, so `domain` and `mod` also carry `no-restricted-globals` on it: the mod loads them without Bun. Specs are exempt from both rules: they import `bun:test` and `fixtures/`, cross the layers by construction, and run under Bun.
 
 | Folder | May import in `src/` | Note |
 |---|---|---|
@@ -11,7 +11,7 @@
 | `gate` | `domain`, `transcripts` | |
 | `debrief` | `domain`, `transcripts`, `store`, `platform` | |
 | `learn`, `review` | `domain`, `store`, `rules`, `platform` | a feature imports adapters, never another feature |
-| `cli` | everything | composition root; nobody imports it |
+| `cli` | everything but `mod` | composition root; nobody imports it; Bun does not resolve the mod's `claude-code` import |
 
 `src/platform/` holds the shared Bun wrappers (process and git, sha1 and uuid): neither domain nor Rule Files, imported by `debrief`, `learn`, `review`, `rules` and `cli` alike.
 
