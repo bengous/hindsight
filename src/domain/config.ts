@@ -22,7 +22,7 @@ export type HindsightConfig = {
 
 export const defaultConfig: HindsightConfig = {
   gate: {
-    threshold: 0.35,
+    threshold: 1,
     cooldownMs: 90_000,
     cooldownMaxSteps: 5,
     quietMinTools: 3,

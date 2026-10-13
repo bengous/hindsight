@@ -1,8 +1,9 @@
 import { Effect, Schema } from "effect";
-import { Command } from "effect/cli";
+import { Command, Flag } from "effect/cli";
+import { replayGate } from "../gate/replay.ts";
 import { Store } from "../store/db.ts";
 import { insertGateDecision } from "../store/queries.ts";
-import { nowIso, printJson, readStdin } from "./app.ts";
+import { AppConfig, AppPaths, nowIso, printJson, readStdin } from "./app.ts";
 
 const LogStdin = Schema.Struct({
   sessionId: Schema.String,
@@ -24,7 +25,17 @@ const log = Command.make(
   }),
 ).pipe(Command.withDescription("Journals one Gate decision read on stdin"));
 
+const replay = Command.make(
+  "replay",
+  { days: Flag.Int("days").pipe(Flag.withDescription("How many days of transcripts to replay"), Flag.withDefault(30)) },
+  Effect.fn(function* ({ days }) {
+    const paths = yield* AppPaths;
+    const config = yield* AppConfig;
+    yield* printJson(yield* Effect.promise(() => replayGate(paths.projectsDir, days, config)));
+  }),
+).pipe(Command.withDescription("Runs the Gate's code, without a model, over past transcripts"));
+
 export const gate = Command.make("gate").pipe(
   Command.withDescription("The Debrief Gate's journal and replay"),
-  Command.withSubcommands([log]),
+  Command.withSubcommands([log, replay]),
 );
