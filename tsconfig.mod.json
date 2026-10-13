@@ -1,7 +1,9 @@
 {
   "compilerOptions": {
     "target": "ESNext",
-    "lib": ["ESNext"],
+    "lib": [
+      "ESNext"
+    ],
     "types": [],
     "module": "Preserve",
     "moduleResolution": "bundler",
@@ -23,5 +25,13 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["types/claude-code.d.ts", "src/mod/**/*.ts", "src/mod/**/*.tsx", "src/domain/**/*.ts"]
+  "include": [
+    "types/claude-code.d.ts",
+    "src/mod/**/*.ts",
+    "src/mod/**/*.tsx",
+    "src/domain/**/*.ts"
+  ],
+  "exclude": [
+    "src/**/*.spec.ts"
+  ]
 }
