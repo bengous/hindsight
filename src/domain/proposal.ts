@@ -1,15 +1,8 @@
 import type { TextEdit } from "./diff.ts";
 
-export type ProposalState = "pending" | "accepted" | "handed_off" | "rejected" | "superseded" | "expired";
+export const PROPOSAL_STATES = ["pending", "accepted", "handed_off", "rejected", "superseded", "expired"] as const;
 
-export const PROPOSAL_STATES: readonly ProposalState[] = [
-  "pending",
-  "accepted",
-  "handed_off",
-  "rejected",
-  "superseded",
-  "expired",
-];
+export type ProposalState = (typeof PROPOSAL_STATES)[number];
 
 export type ProposalEvent = "accept" | "handoff" | "reject" | "supersede" | "expire";
 
@@ -26,9 +19,9 @@ export function nextProposalState(state: ProposalState, event: ProposalEvent): P
   return state === "pending" ? FROM_PENDING[event] : null;
 }
 
-export type Verdict = "missing" | "ignored" | "misplaced" | "conflict" | "unclear" | "hold";
+export const VERDICTS = ["missing", "ignored", "misplaced", "conflict", "unclear", "hold"] as const;
 
-export const VERDICTS: readonly Verdict[] = ["missing", "ignored", "misplaced", "conflict", "unclear", "hold"];
+export type Verdict = (typeof VERDICTS)[number];
 
 export type Change =
   | { readonly kind: "edit"; readonly edits: readonly TextEdit[] }
