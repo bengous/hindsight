@@ -8,7 +8,7 @@ import { defaultConfig, readConfig } from "../domain/config.ts";
 import { fromDraft, toDraft } from "../domain/diff.ts";
 import { addHumanText } from "../domain/facts.ts";
 import { cleanHumanText } from "../domain/human.ts";
-import { isJsonObject, isJsonValue, numberField, textField } from "../domain/json.ts";
+import { isJsonArray, isJsonObject, isJsonValue, numberField, textField } from "../domain/json.ts";
 import { cliConfig, cliStatus, runCli } from "./cli-client.ts";
 import { afterTurn, classifyThenDebrief } from "./gate.ts";
 import { noticeLine } from "./notice.ts";
@@ -133,7 +133,18 @@ async function forceDebrief(host: Host): Promise<void> {
 
 function toPaneItems(answer: JsonValue): Pick<ReviewState, "items" | "pending"> {
   const listed = isJsonObject(answer) ? answer["items"] : undefined;
-  const items = Array.isArray(listed) ? listed.filter(isPaneItem) : [];
+
+  if (!isJsonArray(listed)) {
+    throw new TypeError("review list answered without items");
+  }
+
+  const items = listed.map((item, index) => {
+    if (!isPaneItem(item)) {
+      throw new TypeError(`review list: item ${index} is out of shape`);
+    }
+
+    return item;
+  });
 
   return { items, pending: numberField(answer, "pending") ?? items.length };
 }

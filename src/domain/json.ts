@@ -18,6 +18,8 @@ export function isJsonValue(value: unknown): value is JsonValue {
   return typeof value === "object" && Object.values(value).every(isJsonValue);
 }
 
+export const isJsonArray = (value: JsonValue | undefined): value is readonly JsonValue[] => Array.isArray(value);
+
 export const isJsonObject = (value: JsonValue | undefined): value is JsonObject =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 

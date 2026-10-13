@@ -84,6 +84,24 @@ export type RecordAnswer = {
   readonly rejected: Readonly<Record<string, number>>;
 };
 
+function rejectedCounts(value: JsonValue | undefined): RecordAnswer["rejected"] {
+  if (!isJsonObject(value)) {
+    throw new TypeError("debrief record answered without rejected counts");
+  }
+
+  const counts: Record<string, number> = {};
+
+  for (const [reason, count] of Object.entries(value)) {
+    if (!isNumber(count)) {
+      throw new TypeError(`debrief record: rejected.${reason} is not a number`);
+    }
+
+    counts[reason] = count;
+  }
+
+  return counts;
+}
+
 export async function cliDebriefRecord(
   host: Host,
   id: string,
@@ -109,9 +127,7 @@ export async function cliDebriefRecord(
     failure: textField(answer, "failure"),
     notes: { steers: count("steers"), observations: count("observations"), staleRules: count("staleRules") },
     proposals: numberField(answer, "proposals") ?? 0,
-    rejected: isJsonObject(rejected)
-      ? Object.fromEntries(Object.entries(rejected).filter((entry): entry is [string, number] => isNumber(entry[1])))
-      : {},
+    rejected: rejectedCounts(rejected),
   };
 }
 
