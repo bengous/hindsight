@@ -250,6 +250,5 @@ export default defineConfig({
     ".claude-plugin/**",
     "tools/oxlint/anti-slop/**",
     "types/**",
-    "docs/plan/**",
   ],
 });

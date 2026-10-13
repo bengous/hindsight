@@ -1,4 +1,8 @@
 {
   "files": [],
-  "references": [{ "path": "./tsconfig.bun.json" }, { "path": "./tsconfig.mod.json" }]
+  "references": [
+    { "path": "./tsconfig.bun.json" },
+    { "path": "./tsconfig.mod.json" },
+    { "path": "./docs/plan/tsconfig.json" }
+  ]
 }

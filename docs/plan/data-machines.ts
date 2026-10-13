@@ -170,6 +170,7 @@ function gateMachine(): Machine {
     },
     ...GATE_CHECKS.flatMap((c, i) => {
       const after = GATE_CHECKS[i + 1]?.id ?? "debrief";
+
       const out: MTransition[] = [
         {
           id: `g-${c.id}-skip`,

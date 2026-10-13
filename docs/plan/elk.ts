@@ -2,7 +2,7 @@ export type LayoutOptions = Readonly<Record<string, string>>;
 
 export type ElkPoint = { readonly x: number; readonly y: number };
 
-export type ElkShape = {
+export type ElkBox = {
   id: string;
   x?: number;
   y?: number;
@@ -11,7 +11,7 @@ export type ElkShape = {
   layoutOptions?: LayoutOptions;
 };
 
-export type ElkLabel = Omit<ElkShape, "id"> & { text: string };
+export type ElkLabel = Omit<ElkBox, "id"> & { text: string };
 
 export type ElkEdgeSection = {
   readonly id: string;
@@ -29,9 +29,9 @@ export type ElkExtendedEdge = {
   layoutOptions?: LayoutOptions;
 };
 
-export type ElkNode = ElkShape & {
+export type ElkNode = ElkBox & {
   children?: ElkNode[];
-  ports?: ElkShape[];
+  ports?: ElkBox[];
   edges?: ElkExtendedEdge[];
   labels?: ElkLabel[];
 };
@@ -40,12 +40,14 @@ export type Elk = { readonly layout: (graph: ElkNode) => Promise<ElkNode> };
 
 type ElkCtor = new () => Elk;
 
-const isElkCtor = (value: unknown): value is ElkCtor => typeof value === "function";
+declare global {
+  var ELK: ElkCtor | undefined;
+}
 
 export function elk(): Elk {
-  const Ctor: unknown = Reflect.get(globalThis, "ELK");
+  const Ctor = globalThis.ELK;
 
-  if (!isElkCtor(Ctor)) {
+  if (Ctor === undefined) {
     throw new Error("elkjs ne s'est pas chargé (cdn.jsdelivr.net bloqué ?)");
   }
 

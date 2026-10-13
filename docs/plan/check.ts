@@ -104,6 +104,7 @@ function checkFlows(p: Plan, errors: string[]): void {
     ...p.zones.filter((z) => z.parent === undefined).map((z) => z.id),
     ...p.nodes.filter((n) => n.zone === null).map((n) => n.id),
   ]);
+
   const seen = new Set<string>();
 
   for (const f of OVERVIEW_FLOWS) {

@@ -173,9 +173,7 @@ async function buildMap(): Promise<void> {
 }
 
 async function ensureMap(): Promise<void> {
-  mapBuilding ??= buildMap().catch((error: unknown) => {
-    fail(panel, error);
-  });
+  mapBuilding ??= buildMap().catch(failIn(panel));
 
   await mapBuilding;
 }
@@ -302,9 +300,7 @@ async function showMachine(m: Machine): Promise<void> {
 }
 
 function pickMachine(m: Machine): void {
-  void showMachine(m).catch((error: unknown) => {
-    fail(machinePanel, error);
-  });
+  void showMachine(m).catch(failIn(machinePanel));
 }
 
 function initMachines(): void {
@@ -506,11 +502,17 @@ function initViews(): void {
   observer.observe(machineSheet.svg);
 }
 
-function fail(host: HTMLElement, err: unknown): void {
-  const message = err instanceof Error ? err.message : String(err);
+function fail(host: HTMLElement, cause: unknown): void {
+  const message = cause instanceof Error ? cause.message : String(cause);
   host.innerHTML = `<p class="warn">Le dessin n'a pas pu se faire : <code>${esc(message)}</code></p>`;
-  console.error(err);
+  console.error(cause);
 }
+
+const failIn =
+  (host: HTMLElement) =>
+  (cause: unknown): void => {
+    fail(host, cause);
+  };
 
 // ---------- start ----------
 // Google Fonts splits each weight into subsets fetched on first use, so each
@@ -566,13 +568,9 @@ async function start(): Promise<void> {
 
   document.fonts.addEventListener("loadingdone", () => {
     if (fontKey() !== builtFonts) {
-      rebuild().catch((error: unknown) => {
-        fail(byId("steptext", HTMLElement), error);
-      });
+      rebuild().catch(failIn(byId("steptext", HTMLElement)));
     }
   });
 }
 
-start().catch((error: unknown) => {
-  fail(byId("steptext", HTMLElement), error);
-});
+start().catch(failIn(byId("steptext", HTMLElement)));

@@ -179,6 +179,7 @@ export async function mountFlow(): Promise<void> {
       stepTo(-1);
     });
   }
+
   sheet.jump(sheet.frame(all, 10));
   setStep(-1);
   flowObserver?.disconnect();
@@ -464,6 +465,7 @@ export function mountVerify(): void {
     const kept = steerRows.filter((r) => r.ok).length + observationRows.filter((r) => r.ok).length;
     const dropped = steerRows.length + observationRows.length - kept;
     const stale = parsed.notes.staleRules.length;
+
     const rows = [
       ...steerRows.map((r) => r.html),
       ...observationRows.map((r) => r.html),

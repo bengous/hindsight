@@ -35,7 +35,9 @@ const page = template.replace(
 );
 
 mkdirSync(dirname(out), { recursive: true });
+
 await Bun.write(out, page);
+
 console.log(`${out} (${(page.length / 1024).toFixed(0)} Ko)`);
 
 if (preview !== undefined) {
