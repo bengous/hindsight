@@ -24,6 +24,7 @@ Out-of-band upkeep of the Rule Files coding agents load. A Claude Code mod runs 
 - `src/cli/`: `main.ts` and the Effect commands: `config`, `status`, `doctor`, `gate log|replay`, `debrief start|record`, `learn`, `prune`, `review list|decide`, `handoff prepare`. Every command prints one JSON line.
 - `src/store/`: the `bun:sqlite` Store service, migrations, queries. `src/transcripts/`: JSONL reading, one session with its continuations. `src/debrief/`: verification and storage of a Debrief's answer. `src/gate/`: the replay. `src/learn/`: schema, prompt, code gates, `claude -p` runner, Learn and Prune. `src/rules/`: inventory, markdown, globs, stale checks, apply and commit. `src/review/`: the output port.
 - `plans/`: session records of the v2 pass.
+- `.claude/rules/mod.md` and `.claude/rules/cli.md` hold the path-scoped detail; this file stays the index.
 
 ## Commands
 

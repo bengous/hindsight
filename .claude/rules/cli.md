@@ -1,0 +1,17 @@
+---
+paths:
+  - "src/cli/**"
+  - "src/store/**"
+  - "src/learn/**"
+  - "src/review/**"
+  - "src/debrief/**"
+  - "src/rules/**"
+  - "src/transcripts/**"
+---
+- Every command prints one JSON line on stdout and nothing else; the mod reads the last line. Input beyond flags comes as JSON on stdin, decoded by an Effect `Schema`.
+- Effect 4.0.4: read `node_modules/effect/AGENTS.md` before writing Effect code; no API from memory. Services are `Context.Service` classes with a `Layer`; `Store.transaction` runs a synchronous body inside one SQLite transaction.
+- Schema changes are a new entry at the end of `MIGRATIONS`; `PRAGMA user_version` pins what ran. Never edit an entry that shipped.
+- Git runs with the inherited `GIT_*` variables removed (`src/rules/git.ts`), so the target repository's hooks run and may refuse a commit; the file is restored then.
+- Learn's JSON schema is derived from `LearnOutputSchema` with `onExcessProperty: "error"`; the same Schema decodes the answer. The runner is `ClaudeRunner`; specs use `scriptedRunner`, never a live `claude`.
+- Fixtures under `fixtures/` are synthetic; `fixtures/rules/repo.ts` builds a throwaway checkout with its own hooks path.
+- Run the CLI against a scratch state with `XDG_STATE_HOME`, `XDG_CONFIG_HOME` and `HINDSIGHT_PROJECTS_DIR`; `HINDSIGHT_NO_LEARN` keeps `debrief record` from starting Learn.

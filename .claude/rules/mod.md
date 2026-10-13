@@ -1,0 +1,14 @@
+---
+paths:
+  - "src/mod/**"
+  - "hooks/**"
+  - "types/**"
+---
+- Only `register.ts` touches `$`; a function that receives `$` sits at its top level, never nested or imported. The rest reads a `Host` built by `makeHost`. `claude plugin validate .` names the line that breaks this.
+- Hooks never put text in the model's context: `command.run` answers `{}`, `turn.complete` returns what `next(e)` gave. Surfaces are `$.ui.status`, `$.ui.toast`, the pane, and `$.prompt.fill` for the Handoff alone.
+- `session.start` holds the first prompt: register the command, then start `startup` without awaiting it.
+- Session state lives in `$.store` under `session:<id>` (TurnFacts, fork lock with its deadline); module variables die on a reload and `$.state` on `/clear`.
+- The engine draws the plugin's name on toasts and the status line: no `hindsight :` prefix.
+- Types come from `types/claude-code.d.ts`, written by the Claude Code build named on its first line; regenerate from a `--plugin-dir` load (`.claude-plugin/types/`), never edit. `tsconfig.mod.json` type-checks `src/mod` and `src/domain` without DOM.
+- Kit tests are `src/mod/*.test.ts` on `claude-code/testing`, run by `claude plugin test .`; `bun test` suites are `*.spec.ts`. A kit stub answers `{ value }`, `session.start` answers `{ cwd }`, `process.run` answers the CLI's JSON line; use `mock.clock(on).settle()` to let unawaited work finish.
+- A live check runs in tmux with `claude --plugin-dir .` on a scratch repository; one-line prompts, each model turn costs the user's usage.
