@@ -152,6 +152,33 @@ describe("decideProposal", () => {
     });
   });
 
+  test("the commit message is checked against the raw Quote, before masking, and a refused apply releases the Proposal", async () => {
+    await Effect.runPromise(
+      store.transaction((db) => {
+        upsertMessage(db, {
+          evidenceId: "s1:u1",
+          sessionId: "s1",
+          at: NOW,
+          repoRoot: repo.root,
+          text: "nomme d'après le domaine, token=sk-ant-abcdefghijklmnopqrstuvwxyz0123",
+        });
+        insertProposal(
+          db,
+          proposal("leak", {
+            lessonEn: "User said: nomme d'après le domaine, token=sk-ant-abcdefghijklmnopqrstuvwxyz0123.",
+          }),
+        );
+      }),
+    );
+    const outcome = await provide(decideProposal("leak", { kind: "accept", edits: null }, NOW));
+    expect(outcome).toMatchObject({ kind: "refused", reason: expect.stringContaining("excerpt-in-message") });
+    expect(await Effect.runPromise(store.all("SELECT * FROM decisions"))).toHaveLength(0);
+    expect(
+      (await Effect.runPromise(store.all<{ state: string }>("SELECT state FROM proposals WHERE id = 'leak'")))[0]
+        ?.state,
+    ).toBe("pending");
+  });
+
   test("edit then accept applies the human's text and keeps it on the Decision", async () => {
     await Effect.runPromise(store.transaction((db) => insertProposal(db, proposal("p2"))));
     const edits = [{ oldText: "- Name things plainly.", newText: "- Name things after the domain, in English." }];

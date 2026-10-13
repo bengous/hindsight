@@ -7,6 +7,7 @@ export type SessionState = {
   readonly lastDebriefAt: number | null;
   readonly debriefsInSession: number;
   readonly forkRunning: boolean;
+  readonly forkStartedAt: number | null;
   readonly updatedAt: number;
 };
 
@@ -20,15 +21,38 @@ export const freshState = (now: number): SessionState => ({
   lastDebriefAt: null,
   debriefsInSession: 0,
   forkRunning: false,
+  forkStartedAt: null,
   updatedAt: now,
 });
 
 const isState = (value: unknown): value is SessionState =>
   typeof value === "object" && value !== null && "facts" in value && "updatedAt" in value;
 
+export const FORK_STALE_MS = 15 * 60 * 1000;
+
+/** A fork lock older than fifteen minutes belongs to a fork the engine lost: it no longer holds. */
 export async function readState(host: Host, sessionId: string, now: number): Promise<SessionState> {
   const stored = await host.storeGet(`${SESSION_PREFIX}${sessionId}`);
-  return isState(stored) ? stored : freshState(now);
+  if (!isState(stored)) return freshState(now);
+  const startedAt = typeof stored.forkStartedAt === "number" ? stored.forkStartedAt : null;
+  if (stored.forkRunning && (startedAt === null || now - startedAt > FORK_STALE_MS)) {
+    return { ...stored, forkRunning: false, forkStartedAt: null };
+  }
+  return stored;
+}
+
+/** What the Debrief did not see: the facts added while it ran. */
+export function factsSince(current: TurnFacts, snapshot: TurnFacts): TurnFacts {
+  return {
+    humanTexts: current.humanTexts.slice(snapshot.humanTexts.length),
+    edits: current.edits.slice(snapshot.edits.length),
+    toolCalls: Math.max(0, current.toolCalls - snapshot.toolCalls),
+    toolErrors: Math.max(0, current.toolErrors - snapshot.toolErrors),
+    refusedTools: current.refusedTools.slice(snapshot.refusedTools.length),
+    gitCommits: Math.max(0, current.gitCommits - snapshot.gitCommits),
+    afterInterrupt: current.afterInterrupt,
+    prompts: Math.max(0, current.prompts - snapshot.prompts),
+  };
 }
 
 export async function writeState(host: Host, sessionId: string, state: SessionState, now: number): Promise<void> {

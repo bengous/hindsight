@@ -16,6 +16,7 @@ export type NoteView = {
   readonly question: number | null;
   readonly loadedRules: readonly string[];
   readonly isExplicit: boolean;
+  readonly evidenceId: string;
 };
 
 export type RuleSource = { readonly file: RuleFile; readonly text: string };

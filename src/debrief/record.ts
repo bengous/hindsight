@@ -1,7 +1,7 @@
 import type { HindsightConfig } from "../domain/config.ts";
 import type { SyncStore } from "../store/db.ts";
 import { existsSync, readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, dirname } from "node:path";
 import {
   parseDebrief,
   type DebriefNotes,
@@ -10,6 +10,7 @@ import {
   type SteerNote,
 } from "../domain/debrief.ts";
 import { collapseWhitespace, containsVerbatim } from "../domain/text.ts";
+import { gitToplevelSync } from "../rules/git.ts";
 import { fingerprint, newId } from "../rules/ids.ts";
 import {
   finishDebrief,
@@ -62,11 +63,14 @@ export type RecordOutcome = {
 export type RecordDeps = {
   readonly now: () => string;
   readonly readFile: (path: string) => string | null;
+  /** The checkout that holds a Rule File, or null for a file outside any checkout. */
+  readonly repoOf: (path: string) => string | null;
 };
 
 export const defaultRecordDeps: RecordDeps = {
   now: () => new Date().toISOString(),
   readFile: (path) => (existsSync(path) ? readFileSync(path, "utf8") : null),
+  repoOf: (path) => (existsSync(dirname(path)) ? gitToplevelSync(dirname(path)) : null),
 };
 
 const MIN_EXCERPT = 12;
@@ -105,6 +109,7 @@ export function locateEdit(tools: readonly ToolEvent[], note: StaleRuleNote, cwd
   if (needle.length < MIN_EXCERPT) return null;
   return (
     tools.find((tool) => {
+      if (tool.isError || tool.isRefused) return false;
       const path = editedPath(tool);
       const text = editedText(tool);
       if (path === null || text === null) return false;
@@ -254,14 +259,18 @@ function storeStaleRule(
       tool: edit.tool,
     },
   ];
-  const isGlobal = ctx.input.repoRoot === null || !ruleFile.startsWith(`${ctx.input.repoRoot}/`);
+  const ruleRepo =
+    ctx.input.repoRoot !== null && ruleFile.startsWith(`${ctx.input.repoRoot}/`)
+      ? ctx.input.repoRoot
+      : ctx.deps.repoOf(ruleFile);
+  const isGlobal = ruleRepo === null;
   insertProposal(ctx.db, {
     id: newId(),
     fingerprint: print,
     createdAt: ctx.at,
     source: "debrief",
     targetPath: ruleFile,
-    repoRoot: isGlobal ? null : ctx.input.repoRoot,
+    repoRoot: ruleRepo,
     scope: isGlobal ? "global" : "repo",
     verdict: null,
     claimFr: `La règle « ${collapseWhitespace(note.oldText).slice(0, 120)} » ne correspond plus au code après l'édition de ${basename(editedFile)}.`,

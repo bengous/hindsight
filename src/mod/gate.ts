@@ -1,11 +1,11 @@
 import type { HindsightConfig } from "../domain/config.ts";
 import type { Host } from "./host.ts";
 import type { SessionMessage, ToolUseSummary } from "claude-code";
-import { addToolUses, isRefusalText, markInterrupted, emptyFacts, type ToolUse } from "../domain/facts.ts";
+import { addToolUses, isRefusalText, markInterrupted, type ToolUse } from "../domain/facts.ts";
 import { classifierText, gateBrief, gatePasses, gateSignals, gateSkip, type GateState } from "../domain/gate.ts";
 import { cliGateLog } from "./cli-client.ts";
 import { debriefToast, runDebrief } from "./debrief.ts";
-import { countDebriefToday, debriefsToday, readState, writeState, type SessionState } from "./state.ts";
+import { countDebriefToday, debriefsToday, factsSince, readState, writeState, type SessionState } from "./state.ts";
 
 export type TurnEnd = {
   readonly turnId: string;
@@ -113,11 +113,15 @@ export async function classifyThenDebrief(
   force: boolean,
 ): Promise<void> {
   const sessionId = await host.sessionId();
-  const state = await readState(host, sessionId, await host.now());
+  const startedAt = await host.now();
+  const state = await readState(host, sessionId, startedAt);
   if (state.forkRunning) {
     cliGateLog(host, { sessionId, turnId, decision: "skip", reason: "fork-running", score, signals: [] });
     return;
   }
+  await writeState(host, sessionId, { ...state, forkRunning: true, forkStartedAt: startedAt }, startedAt);
+  const release = () =>
+    setFork(host, sessionId, (current) => ({ ...current, forkRunning: false, forkStartedAt: null }));
   if (!force) {
     let label: string | undefined;
     try {
@@ -125,6 +129,7 @@ export async function classifyThenDebrief(
     } catch (error) {
       cliGateLog(host, { sessionId, turnId, decision: "skip", reason: "classifier-error", score, signals: [] });
       host.log(`classifier failed: ${error instanceof Error ? error.message : String(error)}`);
+      await release();
       return;
     }
     if (label !== "debrief") {
@@ -136,21 +141,22 @@ export async function classifyThenDebrief(
         score,
         signals: [],
       });
+      await release();
       return;
     }
   }
   cliGateLog(host, { sessionId, turnId, decision: force ? "forced" : "debrief", reason: null, score, signals: [] });
-  await setFork(host, sessionId, (current) => ({ ...current, forkRunning: true }));
   try {
     const run = await runDebrief(host, sessionId, await host.repoRoot(), brief);
     const at = await host.now();
     await setFork(host, sessionId, (current) =>
       run.kind === "aborted"
-        ? { ...current, forkRunning: false }
+        ? { ...current, forkRunning: false, forkStartedAt: null }
         : {
             ...current,
             forkRunning: false,
-            facts: emptyFacts,
+            forkStartedAt: null,
+            facts: factsSince(current.facts, state.facts),
             lastDebriefAt: at,
             debriefsInSession: current.debriefsInSession + 1,
           },
@@ -159,7 +165,7 @@ export async function classifyThenDebrief(
     const toast = debriefToast(run);
     if (toast !== null) host.toast(toast);
   } catch (error) {
-    await setFork(host, sessionId, (current) => ({ ...current, forkRunning: false }));
+    await release();
     host.toast(`Debrief impossible : ${error instanceof Error ? error.message : String(error)}`);
   }
 }

@@ -156,7 +156,16 @@ async function spawnClaude(request: ModelRequest): Promise<Spawned> {
 export const liveRunner = ClaudeRunner.of({
   run: (request) =>
     Effect.flatMap(
-      Effect.promise(() => spawnClaude(request)),
+      Effect.tryPromise({
+        try: () => spawnClaude(request),
+        catch: (cause) =>
+          new ModelError({
+            kind: "exit",
+            label: request.label,
+            detail: `cannot start claude: ${cause instanceof Error ? cause.message : String(cause)}`,
+            costUsd: 0,
+          }),
+      }),
       (spawned) => {
         const parsed = parseClaudeOutput(request, spawned);
         return parsed instanceof ModelError ? Effect.fail(parsed) : Effect.succeed(parsed);

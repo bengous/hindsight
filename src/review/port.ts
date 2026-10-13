@@ -155,6 +155,34 @@ const loadPending = (store: StoreShape, id: string) =>
     return row === null ? null : toReviewItem(row, db);
   });
 
+/** The texts a commit message must not hold: the evidence and the cited messages, before any masking. */
+function rawExcerpts(db: SyncStore, row: ProposalRow): string[] {
+  const evidence = JSON.parse(row.evidence_json) as Evidence[];
+  const messages = evidence
+    .filter((item) => item.kind === "quote")
+    .flatMap((item) => {
+      const found = db.get<{ text: string }>("SELECT text FROM messages WHERE evidence_id = ?", [item.evidenceId]);
+      return found === null ? [] : [found.text];
+    });
+  return [...evidence.map((item) => item.text), ...messages];
+}
+
+/** Takes the Proposal for this accept before any file changes: a second accept, concurrent or later, finds it taken. */
+const reserveAccept = (store: StoreShape, id: string, nowIso: string) =>
+  store.transaction((db) => {
+    const row = db.get<ProposalRow>("SELECT * FROM proposals WHERE id = ? AND state = 'pending'", [id]);
+    if (row === null) return null;
+    const item = toReviewItem(row, db);
+    recordDecision(db, item, "accepted", { reason: null, edits: null, commit: null }, nowIso);
+    return { item, excerpts: rawExcerpts(db, row) };
+  });
+
+const releaseAccept = (store: StoreShape, id: string) =>
+  store.transaction((db) => {
+    db.run("DELETE FROM decisions WHERE proposal_id = ? AND decision = 'accepted' AND commit_sha IS NULL", [id]);
+    setState(db, id, "pending");
+  });
+
 /** The one place a Decision is taken: accept applies and commits, reject needs a reason, handoff marks. */
 export const decideProposal = (id: string, decision: Decision, nowIso: string = new Date().toISOString()) =>
   Effect.gen(function* () {
@@ -186,6 +214,9 @@ export const decideProposal = (id: string, decision: Decision, nowIso: string = 
             reason: "a description can only be handed off or rejected",
           } satisfies DecisionOutcome;
         const edits = decision.edits ?? item.change.edits;
+        const reserved = yield* reserveAccept(store, id, nowIso);
+        if (reserved === null)
+          return { kind: "refused", reason: "proposal is no longer pending" } satisfies DecisionOutcome;
         const apply = yield* Effect.promise(() =>
           applyChange({
             proposalId: item.id,
@@ -195,18 +226,21 @@ export const decideProposal = (id: string, decision: Decision, nowIso: string = 
             subject: item.subjectEn,
             lesson: item.lessonEn,
             prevalence: item.prevalence,
-            excerpts: item.evidence.map((evidence) => evidence.text),
+            excerpts: reserved.excerpts,
           }),
         );
-        if (apply.kind === "refused")
+        if (apply.kind === "refused") {
+          yield* releaseAccept(store, id);
           return { kind: "refused", reason: `${apply.reason}: ${apply.detail}` } satisfies DecisionOutcome;
+        }
         yield* store.transaction((db) =>
-          recordDecision(
-            db,
-            item,
-            "accepted",
-            { reason: null, edits: decision.edits, commit: apply.kind === "committed" ? apply.commit : null },
-            nowIso,
+          db.run(
+            "UPDATE decisions SET commit_sha = ?, edited_change_json = ? WHERE proposal_id = ? AND decision = 'accepted'",
+            [
+              apply.kind === "committed" ? apply.commit : `written:${apply.path}`,
+              decision.edits === null ? null : JSON.stringify({ kind: "edit", edits: decision.edits }),
+              id,
+            ],
           ),
         );
         return { kind: "accepted", apply } satisfies DecisionOutcome;

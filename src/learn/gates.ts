@@ -198,6 +198,10 @@ export function gateLearn(group: LearnGroup, output: LearnOutput, context: GateC
       continue;
     }
     const scope = target.kind === "existing" ? target.file.scope : "path";
+    if (group.repoRoot === null && group.notes.some((note) => note.repoRoot !== null) && scope !== "global") {
+      dropped.push({ reason: "global-group-repo-target", detail: candidate.lessonEn });
+      continue;
+    }
     if (scope === "global") {
       const statedForAll = notes.some((note) => note.kind === "steer" && note.isExplicit && EVERY_REPO.test(note.text));
       if (prevalence.repos < 2 && !statedForAll) {
@@ -231,7 +235,7 @@ export function gateLearn(group: LearnGroup, output: LearnOutput, context: GateC
       .toSorted((a, b) => b.at.localeCompare(a.at))
       .slice(0, EVIDENCE_PER_PROPOSAL)
       .map((note) => ({
-        evidenceId: `${note.sessionId}:${note.id}`,
+        evidenceId: note.evidenceId,
         kind: note.kind === "steer" ? "quote" : "observation",
         at: note.at,
         sessionId: note.sessionId,

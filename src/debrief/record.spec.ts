@@ -22,7 +22,7 @@ const files: Record<string, string> = {
   "/home/u/atelier/AGENTS.md": "# Atelier\n\n- Run `bun run check:full` before a commit.\n- Keep commits small.\n",
 };
 
-const deps: RecordDeps = { now: () => NOW, readFile: (path) => files[path] ?? null };
+const deps: RecordDeps = { now: () => NOW, readFile: (path) => files[path] ?? null, repoOf: () => null };
 
 const staleRule = {
   editedPath: "/home/u/atelier/package.json",
@@ -190,6 +190,27 @@ describe("recordDebrief", () => {
     );
     expect(outcome.rejected).toEqual({ "ledger-rejected": 1, "stale-edit-missing": 1, "stale-rule-text": 1 });
     expect(await rows("SELECT * FROM proposals WHERE state = 'pending'")).toHaveLength(0);
+  });
+
+  test("a refused or errored Edit is no edit: the Stale Rule is rejected", async () => {
+    const refused = {
+      ...session,
+      events: session.events.map((event) =>
+        event.kind === "tool" && event.tool === "Edit" ? { ...event, isRefused: true, isError: true } : event,
+      ),
+    };
+    const input: RecordInput = {
+      id: "d1",
+      sessionId: "s-d1",
+      cacheShare: 0.98,
+      durationMs: 1,
+      text: answer({ staleRules: [staleRule] }),
+      repoRoot: "/home/u/atelier",
+    };
+    const outcome = await Effect.runPromise(
+      store.transaction((db) => recordDebrief(db, defaultConfig, refused, input, deps)),
+    );
+    expect(outcome.rejected).toEqual({ "stale-edit-missing": 1 });
   });
 
   test("a Stale Rule whose file moved on since the edit is rejected", async () => {

@@ -49,6 +49,17 @@ export async function git(cwd: string, args: readonly string[], stdin?: string):
   return result.stdout;
 }
 
+/** The checkout that holds `dir`, read synchronously for code that runs inside a SQLite transaction. */
+export function gitToplevelSync(dir: string): string | null {
+  const result = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
+    cwd: dir,
+    env: childEnv(),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return result.exitCode === 0 ? result.stdout.toString().trim() : null;
+}
+
 export async function gitToplevel(dir: string): Promise<string | null> {
   const result = await run(["git", "rev-parse", "--show-toplevel"], { cwd: dir });
   return result.exitCode === 0 ? result.stdout.trim() : null;

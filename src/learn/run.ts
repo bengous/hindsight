@@ -23,6 +23,7 @@ import {
 import { ClaudeRunner, ModelError } from "./claude.ts";
 import { gateLearn, LearnError, type GateContext } from "./gates.ts";
 import { GLOBAL_GROUP, learnPrompt, type LearnGroup, type NoteView, type RuleSource } from "./prompt.ts";
+import { prune } from "./prune.ts";
 import { decodeLearnOutput, learnJsonSchema } from "./schema.ts";
 
 export type LearnOptions = { readonly ifDue: boolean; readonly inventoryEnv: InventoryEnv };
@@ -34,6 +35,7 @@ export type LearnReport = {
   readonly groups: number;
   readonly notesRead: number;
   readonly proposals: number;
+  readonly pruned: number;
   readonly dropped: Readonly<Record<string, number>>;
   readonly failures: readonly string[];
   readonly costUsd: number;
@@ -71,6 +73,7 @@ export function toNoteView(row: NoteRow): NoteView | null {
       question: null,
       loadedRules,
       isExplicit: markersFor(quote, NO_CONTEXT).includes("standing_instruction"),
+      evidenceId: row.evidence_id,
     };
   }
   return {
@@ -86,6 +89,7 @@ export function toNoteView(row: NoteRow): NoteView | null {
     question: typeof body["question"] === "number" ? (body["question"] as number) : null,
     loadedRules,
     isExplicit: false,
+    evidenceId: row.evidence_id,
   };
 }
 
@@ -102,6 +106,9 @@ export function planGroups(
   for (const note of notes) {
     const key = note.repoRoot === null || !existsSync(note.repoRoot) ? GLOBAL_GROUP : note.repoRoot;
     byRepo.set(key, [...(byRepo.get(key) ?? []), note]);
+  }
+  if (globalRules.length > 0 && new Set(notes.map((note) => note.repoRoot)).size >= 2) {
+    byRepo.set(GLOBAL_GROUP, [...notes]);
   }
   return [...byRepo].map(([key, groupNotes]) => {
     const repoRoot = key === GLOBAL_GROUP ? null : key;
@@ -172,6 +179,7 @@ export const learn = (options: LearnOptions, config: HindsightConfig, nowIso: st
         groups: 0,
         notesRead: 0,
         proposals: 0,
+        pruned: 0,
         dropped: {},
         failures: [],
         costUsd: 0,
@@ -264,6 +272,12 @@ export const learn = (options: LearnOptions, config: HindsightConfig, nowIso: st
       });
       proposals += gated.proposals.length;
     }
+    const pruned = yield* prune(repoRoots, options.inventoryEnv, nowIso).pipe(
+      Effect.catch((error) => {
+        failures.push(`prune: ${error instanceof Error ? error.message : String(error)}`);
+        return Effect.succeed({ proposals: 0 });
+      }),
+    );
     const status = failures.length > 0 && proposals === 0 && groups.length > 0 ? "failed" : "complete";
     yield* finish(status, failures.length === 0 ? null : failures.join("\n"));
     return {
@@ -273,6 +287,7 @@ export const learn = (options: LearnOptions, config: HindsightConfig, nowIso: st
       groups: groups.length,
       notesRead: views.length,
       proposals,
+      pruned: pruned.proposals,
       dropped,
       failures,
       costUsd,

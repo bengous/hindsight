@@ -5,7 +5,7 @@ import { CliError, runCli } from "./cli-client.ts";
 import { cacheShareOf } from "./debrief.ts";
 import { lastTurnTools } from "./gate.ts";
 import { noticeLine } from "./notice.ts";
-import { freshState, pruneStore } from "./state.ts";
+import { factsSince, freshState, pruneStore, readState } from "./state.ts";
 
 const message = (
   role: "user" | "assistant",
@@ -116,6 +116,31 @@ describe("runCli", () => {
       runCli(fakeHost({ exitCode: 2, stdout: "", stderr: "boom\nlast line" }), ["status"]),
     ).rejects.toBeInstanceOf(CliError);
     await expect(runCli(fakeHost({ exitCode: 0, stdout: "not json" }), ["status"])).rejects.toThrow("not a JSON line");
+  });
+});
+
+describe("readState and factsSince", () => {
+  test("a fork lock older than fifteen minutes no longer holds, and the facts added during a Debrief stay", async () => {
+    const now = Date.UTC(2026, 9, 13, 12);
+    const stale = { ...freshState(now), forkRunning: true, forkStartedAt: now - 16 * 60_000 };
+    const live = { ...freshState(now), forkRunning: true, forkStartedAt: now - 60_000 };
+    const host = fakeHost(
+      { exitCode: 0, stdout: "{}" },
+      new Map<string, unknown>([
+        ["session:a", stale],
+        ["session:b", live],
+      ]),
+    );
+    expect((await readState(host, "a", now)).forkRunning).toBe(false);
+    expect((await readState(host, "b", now)).forkRunning).toBe(true);
+    const before = freshState(now).facts;
+    const during = { ...before, humanTexts: [{ text: "pendant le fork", markers: [] }], prompts: 1, toolCalls: 2 };
+    expect(factsSince(during, before)).toMatchObject({
+      humanTexts: [{ text: "pendant le fork" }],
+      prompts: 1,
+      toolCalls: 2,
+    });
+    expect(factsSince(during, during)).toMatchObject({ humanTexts: [], prompts: 0, toolCalls: 0 });
   });
 });
 

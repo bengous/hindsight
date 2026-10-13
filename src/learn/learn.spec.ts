@@ -44,6 +44,7 @@ const note = (id: string, session: string, day: string, text: string, extra: Par
   question: null,
   loadedRules: [AGENTS],
   isExplicit: false,
+  evidenceId: `${session}:u-${id}`,
   ...extra,
 });
 
@@ -312,6 +313,7 @@ describe("learn", () => {
     await seed(3);
     const report = await run([{ candidates: [candidate()] }]);
     expect(report).toMatchObject({
+      pruned: 1,
       status: "complete",
       groups: 1,
       notesRead: 3,
@@ -397,7 +399,7 @@ describe("learn", () => {
     const report = await run([{ candidates: [candidate()] }]);
     expect(report.proposals).toBe(0);
     expect(report.dropped).toEqual({ "ledger-rejected": 1 });
-    expect(await proposals()).toHaveLength(1);
+    expect(await Effect.runPromise(store.all("SELECT id FROM proposals WHERE source = 'learn'"))).toHaveLength(1);
   });
 
   test("an unknown id fails that group and writes nothing; a model error is recorded with its cost", async () => {
@@ -405,7 +407,7 @@ describe("learn", () => {
     const failed = await run([{ candidates: [candidate({ noteIds: ["ghost"] })] }]);
     expect(failed).toMatchObject({ status: "failed", proposals: 0 });
     expect(failed.failures[0]).toContain("unknown note");
-    expect(await proposals()).toHaveLength(0);
+    expect(await Effect.runPromise(store.all("SELECT id FROM proposals WHERE source = 'learn'"))).toHaveLength(0);
     const errored = await run([new ModelError({ kind: "timeout", label: "learn", detail: "killed", costUsd: 0.05 })]);
     expect(errored).toMatchObject({ status: "failed", costUsd: 0.05 });
   });
@@ -482,7 +484,7 @@ describe("toNoteView and planGroups", () => {
     };
     const groups = planGroups([view!, note("x", "s", "01", "t")], [group.rules[0]!.file, globalFile], []);
     expect(groups.map((g) => [g.key, g.notes.length, g.rules.length])).toEqual([
-      ["global", 1, 1],
+      ["global", 2, 1],
       [repo.root, 1, 2],
     ]);
   });
