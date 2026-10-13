@@ -17,6 +17,7 @@ const ASSIGNED_SECRET = /\b(password|passwd|secret|token|api[_-]?key)(\s*[:=]\s*
 /** Applied to every text before it reaches a model, a run file or a card; evidence quotes are checked against the result. */
 export function redactSecrets(text: string): string {
   const withoutTokens = SECRET_PATTERNS.reduce((current, pattern) => current.replace(pattern, REDACTED), text);
+
   return withoutTokens.replace(
     ASSIGNED_SECRET,
     (_match, key: string, separator: string) => `${key}${separator}${REDACTED}`,

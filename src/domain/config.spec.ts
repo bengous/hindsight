@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { defaultConfig, readConfig } from "./config.ts";
 
 describe("readConfig", () => {

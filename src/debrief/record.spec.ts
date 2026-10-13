@@ -1,20 +1,21 @@
+import type { StoreShape } from "../store/db.ts";
+import type { DebriefRow, NoteRow, ProposalRow } from "../store/queries.ts";
+import type { SessionRecord } from "../transcripts/session.ts";
+import type { RecordDeps, RecordInput } from "./record.ts";
+
 import { beforeEach, describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { join } from "node:path";
+
 import { defaultConfig } from "../domain/config.ts";
 import { fingerprint } from "../rules/ids.ts";
-import { makeStore, type StoreShape } from "../store/db.ts";
-import {
-  abortStaleDebriefs,
-  insertDebrief,
-  type DebriefRow,
-  type NoteRow,
-  type ProposalRow,
-} from "../store/queries.ts";
-import { readSession, type SessionRecord } from "../transcripts/session.ts";
-import { recordDebrief, type RecordDeps, type RecordInput } from "./record.ts";
+import { makeStore } from "../store/db.ts";
+import { abortStaleDebriefs, insertDebrief } from "../store/queries.ts";
+import { readSession } from "../transcripts/session.ts";
+import { recordDebrief } from "./record.ts";
 
 const projectsDir = join(import.meta.dir, "../../fixtures/debrief/projects");
+
 const NOW = "2026-10-01T10:00:00.000Z";
 
 const files: Record<string, string> = {
@@ -36,6 +37,7 @@ const staleRule = {
 const answer = (notes: object): string => `\`\`\`json\n${JSON.stringify(notes)}\n\`\`\``;
 
 let store: StoreShape;
+
 let session: SessionRecord;
 
 async function openDebrief(id = "d1"): Promise<void> {
@@ -44,7 +46,7 @@ async function openDebrief(id = "d1"): Promise<void> {
   );
 }
 
-function record(text: string, overrides: Partial<RecordInput> = {}) {
+async function record(text: string, overrides: Partial<RecordInput> = {}) {
   const input: RecordInput = {
     id: "d1",
     sessionId: "s-d1",
@@ -54,15 +56,21 @@ function record(text: string, overrides: Partial<RecordInput> = {}) {
     repoRoot: "/home/u/atelier",
     ...overrides,
   };
+
   return Effect.runPromise(store.transaction((db) => recordDebrief(db, defaultConfig, session, input, deps)));
 }
 
-const rows = <T extends Record<string, string | number | null>>(sql: string) => Effect.runPromise(store.all<T>(sql));
+const rows = async <T extends Record<string, string | number | null>>(sql: string) =>
+  Effect.runPromise(store.all<T>(sql));
 
 beforeEach(async () => {
   store = await Effect.runPromise(makeStore(":memory:"));
   const read = await readSession(projectsDir, "s-d1");
-  if (read === null) throw new Error("fixture session s-d1 not found");
+
+  if (read === null) {
+    throw new Error("fixture session s-d1 not found");
+  }
+
   session = read;
   await openDebrief();
 });
@@ -104,6 +112,7 @@ describe("recordDebrief", () => {
         staleRules: [staleRule],
       }),
     );
+
     expect(outcome).toMatchObject({
       status: "recorded",
       notes: { steers: 1, observations: 1, staleRules: 1 },
@@ -147,6 +156,7 @@ describe("recordDebrief", () => {
         ],
       }),
     );
+
     expect(outcome.notes.steers).toBe(0);
     expect(outcome.rejected).toEqual({ "quote-missing": 1, "quote-from-tool": 1 });
     expect(await rows("SELECT * FROM notes")).toHaveLength(0);
@@ -162,6 +172,7 @@ describe("recordDebrief", () => {
         ],
       }),
     );
+
     expect(outcome.rejected).toEqual({ "observation-missing": 3 });
   });
 
@@ -179,6 +190,7 @@ describe("recordDebrief", () => {
         );
       }),
     );
+
     const outcome = await record(
       answer({
         staleRules: [
@@ -188,6 +200,7 @@ describe("recordDebrief", () => {
         ],
       }),
     );
+
     expect(outcome.rejected).toEqual({ "ledger-rejected": 1, "stale-edit-missing": 1, "stale-rule-text": 1 });
     expect(await rows("SELECT * FROM proposals WHERE state = 'pending'")).toHaveLength(0);
   });
@@ -199,6 +212,7 @@ describe("recordDebrief", () => {
         event.kind === "tool" && event.tool === "Edit" ? { ...event, isRefused: true, isError: true } : event,
       ),
     };
+
     const input: RecordInput = {
       id: "d1",
       sessionId: "s-d1",
@@ -207,9 +221,11 @@ describe("recordDebrief", () => {
       text: answer({ staleRules: [staleRule] }),
       repoRoot: "/home/u/atelier",
     };
+
     const outcome = await Effect.runPromise(
       store.transaction((db) => recordDebrief(db, defaultConfig, refused, input, deps)),
     );
+
     expect(outcome.rejected).toEqual({ "stale-edit-missing": 1 });
   });
 
@@ -218,6 +234,7 @@ describe("recordDebrief", () => {
       ...deps,
       readFile: (path: string) => (path.endsWith("package.json") ? "{}" : (files[path] ?? null)),
     };
+
     const input: RecordInput = {
       id: "d1",
       sessionId: "s-d1",
@@ -226,9 +243,11 @@ describe("recordDebrief", () => {
       text: answer({ staleRules: [staleRule] }),
       repoRoot: "/home/u/atelier",
     };
+
     const outcome = await Effect.runPromise(
       store.transaction((db) => recordDebrief(db, defaultConfig, session, input, stale)),
     );
+
     expect(outcome.rejected).toEqual({ "stale-file-changed": 1 });
   });
 
@@ -236,6 +255,7 @@ describe("recordDebrief", () => {
     const outcome = await record(answer({ steers: [{ quote: "pas de npm", lesson: "x", habit: true }] }), {
       cacheShare: 0.5,
     });
+
     expect(outcome).toMatchObject({ status: "failed", failure: "cache:0.50" });
     expect(await rows("SELECT * FROM notes")).toHaveLength(0);
     expect((await rows<DebriefRow>("SELECT * FROM debriefs"))[0]?.status).toBe("failed");

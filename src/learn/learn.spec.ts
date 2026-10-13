@@ -1,16 +1,22 @@
+import type { HindsightConfig } from "../domain/config.ts";
+import type { StoreShape } from "../store/db.ts";
+import type { ProposalRow } from "../store/queries.ts";
+import type { GateContext } from "./gates.ts";
 import type { LearnGroup, NoteView } from "./prompt.ts";
 import type { Candidate } from "./schema.ts";
+
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
+
 import { tempDir, tempRepo } from "../../fixtures/rules/repo.ts";
-import { defaultConfig, type HindsightConfig } from "../domain/config.ts";
+import { defaultConfig } from "../domain/config.ts";
 import { fingerprint } from "../rules/ids.ts";
-import { makeStore, Store, type StoreShape } from "../store/db.ts";
-import { insertDebrief, insertNote, type ProposalRow } from "../store/queries.ts";
+import { Store, makeStore } from "../store/db.ts";
+import { insertDebrief, insertNote } from "../store/queries.ts";
 import { ClaudeRunner, ModelError, scriptedRunner } from "./claude.ts";
-import { gateLearn, type GateContext } from "./gates.ts";
+import { gateLearn } from "./gates.ts";
 import { knownRepos, prune } from "./prune.ts";
 import { learn, planGroups, toNoteView } from "./run.ts";
 
@@ -22,8 +28,11 @@ const repo = tempRepo({
   ".claude/rules/dead.md": "---\npaths:\n  - legacy/**\n---\n- Dead glob.\n",
   "src/a.ts": "",
 });
+
 const home = tempDir("home");
+
 const AGENTS = join(repo.root, "AGENTS.md");
+
 const RULE_TEXT = "# Atelier\n\n- Run `bun run check` before a commit.\n- Keep commits small.\n";
 
 afterAll(() => {
@@ -135,14 +144,17 @@ describe("gateLearn", () => {
   test("principle 5: one session passes only when stated outright, in conflict with a loaded rule, or a clear Observation", () => {
     const one = (overrides: Partial<Candidate>) =>
       gateLearn(group, { candidates: [candidate({ noteIds: ["n1"], ...overrides })] }, context);
+
     expect(one({}).dropped[0]?.reason).toBe("below-threshold");
     expect(gateLearn(group, { candidates: [candidate({ noteIds: ["n4"] })] }, context).proposals).toHaveLength(1);
     expect(one({ verdict: "conflict", ruleBulletIds: [bulletId] }).proposals).toHaveLength(1);
     expect(one({ verdict: "conflict" }).dropped[0]?.reason).toBe("conflict-without-rule");
+
     const observed: LearnGroup = {
       ...group,
       notes: [note("o1", "s9", "05", "bun run check:full", { kind: "observation", tool: "Bash", isExplicit: false })],
     };
+
     expect(
       gateLearn(
         observed,
@@ -178,6 +190,7 @@ describe("gateLearn", () => {
       },
       context,
     ).dropped.map((drop) => drop.reason);
+
     expect(reasons).toEqual([
       "watch-task",
       "hold",
@@ -204,6 +217,7 @@ describe("gateLearn", () => {
       },
       context,
     );
+
     expect(result.proposals[0]).toMatchObject({ scope: "path", targetPath: `${repo.root}/.claude/rules/packages.md` });
   });
 
@@ -215,11 +229,13 @@ describe("gateLearn", () => {
       repoRoot: null,
       scope: "global" as const,
     };
+
     const withGlobal: LearnGroup = { ...group, rules: [...group.rules, { file: globalFile, text: RULE_TEXT }] };
     const target = { targetPath: globalFile.sourcePath };
     expect(gateLearn(withGlobal, { candidates: [candidate(target)] }, context).dropped[0]?.reason).toBe(
       "global-one-repo",
     );
+
     const everywhere: LearnGroup = {
       ...withGlobal,
       notes: [
@@ -227,13 +243,16 @@ describe("gateLearn", () => {
         note("n5", "s5", "06", "Partout, dans tous les dépôts, installe avec pnpm", { isExplicit: true }),
       ],
     };
+
     expect(
       gateLearn(everywhere, { candidates: [candidate({ ...target, noteIds: ["n5"] })] }, context).proposals,
     ).toHaveLength(1);
+
     const twoRepos: LearnGroup = {
       ...withGlobal,
       notes: [...group.notes, note("n6", "s6", "06", "x", { repoRoot: "/other" })],
     };
+
     expect(
       gateLearn(twoRepos, { candidates: [candidate({ ...target, noteIds: ["n1", "n2", "n6"] })] }, context).proposals,
     ).toHaveLength(1);
@@ -251,6 +270,7 @@ describe("gateLearn", () => {
     expect(
       gateLearn(group, { candidates: [candidate()] }, { ...context, pending: new Set([print]) }).dropped[0]?.reason,
     ).toBe("already-proposed");
+
     const twins = gateLearn(
       group,
       {
@@ -261,6 +281,7 @@ describe("gateLearn", () => {
       },
       context,
     );
+
     expect(twins.proposals).toHaveLength(1);
     expect(twins.dropped.map((d) => d.reason)).toEqual(["duplicate-evidence"]);
   });
@@ -268,15 +289,17 @@ describe("gateLearn", () => {
 
 describe("learn", () => {
   let store: StoreShape;
+
   const config: HindsightConfig = {
     ...defaultConfig,
     learn: { ...defaultConfig.learn, pendingNotes: 2, maxBudgetUsd: 0.25 },
   };
 
-  const seed = (count: number) =>
+  const seed = async (count: number) =>
     Effect.runPromise(
       store.transaction((db) => {
         insertDebrief(db, { id: "d1", sessionId: "s1", repoRoot: repo.root, at: NOW });
+
         for (let i = 1; i <= count; i += 1) {
           insertNote(db, {
             id: `n${i}`,
@@ -295,7 +318,7 @@ describe("learn", () => {
       }),
     );
 
-  const run = (answers: readonly unknown[], ifDue = false, nowIso = NOW) =>
+  const run = async (answers: readonly unknown[], ifDue = false, nowIso = NOW) =>
     Effect.runPromise(
       learn({ ifDue, inventoryEnv: { home } }, config, nowIso).pipe(
         Effect.provide(Layer.succeed(Store, store)),
@@ -303,7 +326,8 @@ describe("learn", () => {
       ),
     );
 
-  const proposals = () => Effect.runPromise(store.all<ProposalRow>("SELECT * FROM proposals ORDER BY created_at"));
+  const proposals = async () =>
+    Effect.runPromise(store.all<ProposalRow>("SELECT * FROM proposals ORDER BY created_at"));
 
   beforeEach(async () => {
     store = await Effect.runPromise(makeStore(":memory:"));
@@ -329,11 +353,13 @@ describe("learn", () => {
     });
     const notes = await Effect.runPromise(store.all<{ status: string }>("SELECT status FROM notes"));
     expect(notes.map((n) => n.status)).toEqual(["used", "used", "used"]);
+
     const runs = await Effect.runPromise(
       store.all<{ status: string; cost_usd: number; proposals_written: number }>(
         "SELECT status, cost_usd, proposals_written FROM learn_runs",
       ),
     );
+
     expect(runs).toEqual([{ status: "complete", cost_usd: 0.1, proposals_written: 1 }]);
   });
 
@@ -432,12 +458,14 @@ describe("learn", () => {
       ),
     );
     const tight: HindsightConfig = { ...config, learn: { ...config.learn, maxBudgetUsd: 0.11 } };
+
     const report = await Effect.runPromise(
       learn({ ifDue: false, inventoryEnv: { home } }, tight, NOW).pipe(
         Effect.provide(Layer.succeed(Store, store)),
         Effect.provide(Layer.succeed(ClaudeRunner, scriptedRunner([{ candidates: [] }, { candidates: [] }]))),
       ),
     );
+
     expect(report.groups).toBe(2);
     expect(report.dropped).toEqual({ budget: 1 });
   });
@@ -449,9 +477,11 @@ describe("learn", () => {
     );
     const report = await run([{ candidates: [] }]);
     expect(report.notesRead).toBe(1);
+
     const statuses = await Effect.runPromise(
       store.all<{ id: string; status: string }>("SELECT id, status FROM notes ORDER BY id"),
     );
+
     expect(statuses).toEqual([
       { id: "n1", status: "expired" },
       { id: "n2", status: "pending" },
@@ -474,7 +504,9 @@ describe("toNoteView and planGroups", () => {
       body_json: JSON.stringify({ quote: "Désormais, réponds en français", habit: true }),
       loaded_rules_json: JSON.stringify([AGENTS]),
     });
+
     expect(view).toMatchObject({ kind: "steer", isExplicit: true, loadedRules: [AGENTS] });
+
     const globalFile = {
       ...group.rules[0]!.file,
       sourcePath: "/h/.claude/AGENTS.md",
@@ -482,6 +514,7 @@ describe("toNoteView and planGroups", () => {
       repoRoot: null,
       scope: "global" as const,
     };
+
     const groups = planGroups([view!, note("x", "s", "01", "t")], [group.rules[0]!.file, globalFile], []);
     expect(groups.map((g) => [g.key, g.notes.length, g.rules.length])).toEqual([
       ["global", 2, 1],
@@ -493,9 +526,11 @@ describe("toNoteView and planGroups", () => {
 describe("prune", () => {
   test("a dead glob becomes a description Proposal once, filtered by the Ledger", async () => {
     const store = await Effect.runPromise(makeStore(":memory:"));
+
     const first = await Effect.runPromise(
       prune([repo.root], { home }, NOW).pipe(Effect.provide(Layer.succeed(Store, store))),
     );
+
     expect(first).toMatchObject({ repos: 1, proposals: 1, skipped: {} });
     expect(first.findings).toBeGreaterThanOrEqual(1);
     const rows = await Effect.runPromise(store.all<ProposalRow>("SELECT * FROM proposals"));
@@ -506,23 +541,29 @@ describe("prune", () => {
     });
     expect(JSON.parse(rows[0]?.change_json ?? "")).toMatchObject({ kind: "description" });
     expect(rows[0]?.claim_fr).toContain("legacy/**");
+
     const second = await Effect.runPromise(
       prune([repo.root], { home }, NOW).pipe(Effect.provide(Layer.succeed(Store, store))),
     );
+
     expect(second.skipped).toEqual({ "already-pending": first.findings });
     await Effect.runPromise(
       store.transaction((db) => {
         db.run("UPDATE proposals SET state = 'rejected'");
-        for (const row of rows)
+
+        for (const row of rows) {
           db.run(
             "INSERT INTO decisions (proposal_id, fingerprint, at, decision, reason, sessions_at_decision) VALUES (?, ?, ?, 'rejected', 'keep', 0)",
             [row.id, row.fingerprint, NOW],
           );
+        }
       }),
     );
+
     const third = await Effect.runPromise(
       prune([repo.root], { home }, NOW).pipe(Effect.provide(Layer.succeed(Store, store))),
     );
+
     expect(third.skipped).toEqual({ "ledger-rejected": first.findings });
     expect(await Effect.runPromise(knownRepos.pipe(Effect.provide(Layer.succeed(Store, store))))).toEqual([repo.root]);
   });

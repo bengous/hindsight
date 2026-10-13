@@ -48,11 +48,13 @@ const isJson = (value: unknown): value is Json => typeof value === "object" && v
 
 function num(source: Json, key: string, fallback: number): number {
   const value = source[key];
+
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function str(source: Json, key: string, fallback: string): string {
   const value = source[key];
+
   return typeof value === "string" && value !== "" ? value : fallback;
 }
 
@@ -65,6 +67,7 @@ export function readConfig(input: unknown): HindsightConfig {
   const review = isJson(root["review"]) ? root["review"] : {};
   const excluded = root["excludedRepos"];
   const classifier = gate["classifierModel"];
+
   return {
     gate: {
       threshold: num(gate, "threshold", defaultConfig.gate.threshold),

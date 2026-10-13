@@ -1,46 +1,46 @@
+import type { HindsightConfig } from "../domain/config.ts";
 import type { Host } from "./host.ts";
+import type { PaneElements, PaneItem, PaneMode, ReviewActions, ReviewState } from "./review-pane.tsx";
 import type { EngineInterface, Register } from "claude-code";
-import { defaultConfig, readConfig, type HindsightConfig } from "../domain/config.ts";
+
+import { defaultConfig, readConfig } from "../domain/config.ts";
 import { fromDraft, toDraft } from "../domain/diff.ts";
 import { addHumanText } from "../domain/facts.ts";
 import { cleanHumanText } from "../domain/human.ts";
 import { cliConfig, cliStatus, runCli } from "./cli-client.ts";
 import { afterTurn, classifyThenDebrief } from "./gate.ts";
 import { noticeLine } from "./notice.ts";
-import {
-  drawReview,
-  emptyReview,
-  type PaneElements,
-  type PaneItem,
-  type PaneMode,
-  type ReviewActions,
-  type ReviewState,
-} from "./review-pane.tsx";
+import { drawReview, emptyReview } from "./review-pane.tsx";
 import { pruneStore, readState, writeState } from "./state.ts";
 
 const COMMAND = "hindsight";
+
 const PANE = "hindsight-review";
+
 const HUMAN_ORIGINS = new Set(["composer", "bridge"]);
+
 const DECIDE_TIMEOUT_MS = 10 * 60 * 1000;
 
 let config: HindsightConfig = defaultConfig;
+
 let isInteractive = true;
+
 let review: ReviewState = emptyReview;
 
 function makeHost($: EngineInterface): Host {
   return {
     pluginRoot: $.plugin.root,
-    now: () => $.clock.now(),
-    sessionId: () => $.session.id(),
+    now: async () => $.clock.now(),
+    sessionId: async () => $.session.id(),
     repoRoot: async () => (await $.session.repo())?.root ?? null,
-    messages: () => $.session.messages(),
-    storeGet: (key) => $.store.get(key),
-    storeSet: (key, value) => $.store.set(key, value),
-    storeDelete: (key) => $.store.delete(key),
-    storeKeys: () => $.store.keys(),
-    run: (argv, init) => $.process.run([...argv], init),
-    classify: (text, labels, model) => $.model.classify(text, labels, model === null ? undefined : { model }),
-    fork: (prompt) => $.model.fork({ prompt }),
+    messages: async () => $.session.messages(),
+    storeGet: async (key) => $.store.get(key),
+    storeSet: async (key, value) => $.store.set(key, value),
+    storeDelete: async (key) => $.store.delete(key),
+    storeKeys: async () => $.store.keys(),
+    run: async (argv, init) => $.process.run([...argv], init),
+    classify: async (text, labels, model) => $.model.classify(text, labels, model === null ? undefined : { model }),
+    fork: async (prompt) => $.model.fork({ prompt }),
     after: (ms, fn) => {
       $.clock.after(ms, fn);
     },
@@ -62,11 +62,13 @@ async function startup(host: Host): Promise<void> {
   } catch (error) {
     host.toast(`config illisible, défauts gardés (${describe(error)})`);
   }
+
   try {
     host.status(noticeLine(await cliStatus(host)));
   } catch (error) {
     host.log(`status failed: ${describe(error)}`);
   }
+
   try {
     await pruneStore(host, await host.now());
   } catch (error) {
@@ -76,7 +78,11 @@ async function startup(host: Host): Promise<void> {
 
 async function captureHuman(host: Host, text: string): Promise<void> {
   const cleaned = cleanHumanText(text);
-  if (cleaned === "") return;
+
+  if (cleaned === "") {
+    return;
+  }
+
   const now = await host.now();
   const sessionId = await host.sessionId();
   const state = await readState(host, sessionId, now);
@@ -85,7 +91,11 @@ async function captureHuman(host: Host, text: string): Promise<void> {
 
 async function endTurn(host: Host, turnId: string, isAborted: boolean, agentId: string | null): Promise<void> {
   const outcome = await afterTurn(host, config, { turnId, isAborted, agentId, isInteractive });
-  if (outcome.kind !== "pass") return;
+
+  if (outcome.kind !== "pass") {
+    return;
+  }
+
   host.after(1, () => {
     void classifyThenDebrief(host, config, turnId, outcome.brief, outcome.score, false).catch((error: unknown) =>
       host.log(`debrief pipeline failed: ${describe(error)}`),
@@ -103,23 +113,31 @@ async function forceDebrief(host: Host): Promise<void> {
 }
 
 type Json = Readonly<Record<string, unknown>>;
+
 const isJson = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
 
 function toPaneItems(answer: unknown): { items: PaneItem[]; pending: number } {
   const items = isJson(answer) && Array.isArray(answer["items"]) ? (answer["items"] as PaneItem[]) : [];
   const pending = isJson(answer) && typeof answer["pending"] === "number" ? answer["pending"] : items.length;
+
   return { items, pending };
 }
 
 async function openReview(host: Host, open: (focus: boolean) => Promise<boolean>, redraw: () => void): Promise<void> {
   const listed = toPaneItems(await runCli(host, ["review", "list"]));
   review = { ...emptyReview, items: listed.items, pending: listed.pending };
+
   if (listed.items.length === 0) {
     host.toast("aucune Proposal en attente");
+
     return;
   }
+
   redraw();
-  if (!(await open(true))) host.toast("élargis le terminal pour voir le panneau de Review");
+
+  if (!(await open(true))) {
+    host.toast("élargis le terminal pour voir le panneau de Review");
+  }
 }
 
 function dropCurrent(): void {
@@ -136,12 +154,15 @@ function dropCurrent(): void {
 async function decide(host: Host, body: Json, redraw: () => void): Promise<void> {
   review = { ...review, mode: { kind: "busy", label: "Décision en cours…" }, notice: null };
   redraw();
+
   try {
     const answer = await runCli(host, ["review", "decide"], {
       stdin: JSON.stringify(body),
       timeoutMs: DECIDE_TIMEOUT_MS,
     });
+
     const kind = isJson(answer) ? answer["kind"] : undefined;
+
     if (kind === "refused") {
       const reason = isJson(answer) && typeof answer["reason"] === "string" ? answer["reason"] : "refusée";
       review = { ...review, mode: { kind: "view" }, notice: `Décision refusée : ${reason}` };
@@ -153,44 +174,69 @@ async function decide(host: Host, body: Json, redraw: () => void): Promise<void>
   } catch (error) {
     review = { ...review, mode: { kind: "view" }, notice: describe(error) };
   }
+
   redraw();
 }
 
 function paneActions(host: Host, redraw: () => void): ReviewActions {
   const current = (): PaneItem | undefined => review.items[review.index];
+
   return {
     accept: (edits) => {
       const item = current();
-      if (item === undefined) return;
+
+      if (item === undefined) {
+        return;
+      }
+
       void decide(host, { id: item.id, decision: "accept", edits }, redraw);
     },
     acceptEdited: () => {
       const item = current();
-      if (item === undefined || item.change.kind !== "edit" || review.mode.kind !== "edit") return;
+
+      if (item === undefined || item.change.kind !== "edit" || review.mode.kind !== "edit") {
+        return;
+      }
+
       const drafts = review.mode.drafts;
+
       const edits = item.change.edits.map((edit, index) => ({
         oldText: edit.oldText,
         newText: fromDraft(drafts[index] ?? toDraft(edit.newText)),
       }));
+
       void decide(host, { id: item.id, decision: "accept", edits }, redraw);
     },
     reject: (reason) => {
       const item = current();
-      if (item === undefined) return;
+
+      if (item === undefined) {
+        return;
+      }
+
       if (reason.trim() === "") {
         review = { ...review, notice: "Un rejet demande une raison." };
         redraw();
+
         return;
       }
+
       void decide(host, { id: item.id, decision: "reject", reason: reason.trim() }, redraw);
     },
     handoff: () => {
       const item = current();
-      if (item === undefined) return;
+
+      if (item === undefined) {
+        return;
+      }
+
       void decide(host, { id: item.id, decision: "handoff" }, redraw);
     },
     next: () => {
-      if (review.items.length === 0) return;
+      if (review.items.length === 0) {
+        return;
+      }
+
       review = {
         ...review,
         index: (review.index + 1) % review.items.length,
@@ -208,11 +254,15 @@ function paneActions(host: Host, redraw: () => void): ReviewActions {
       const expanded = review.expanded.includes(index)
         ? review.expanded.filter((i) => i !== index)
         : [...review.expanded, index];
+
       review = { ...review, expanded };
       redraw();
     },
     setDraft: (index, value) => {
-      if (review.mode.kind !== "edit") return;
+      if (review.mode.kind !== "edit") {
+        return;
+      }
+
       const drafts = review.mode.drafts.map((draft, i) => (i === index ? value : draft));
       review = { ...review, mode: { kind: "edit", drafts } };
     },
@@ -222,10 +272,13 @@ function paneActions(host: Host, redraw: () => void): ReviewActions {
 async function fillHandoff(host: Host): Promise<void> {
   const answer = await runCli(host, ["handoff", "prepare"]);
   const instructions = isJson(answer) && typeof answer["instructions"] === "string" ? answer["instructions"] : null;
+
   if (instructions === null) {
     host.toast("aucune Proposal en Handoff");
+
     return;
   }
+
   await host.fill(instructions);
   host.toast("instructions du Handoff dans le prompt, à envoyer si tu veux");
 }
@@ -236,28 +289,43 @@ async function runCommand(
   pane: { open: (focus: boolean) => Promise<boolean>; redraw: () => void },
 ): Promise<void> {
   const [verb = "status"] = args.trim().split(/\s+/);
+
   switch (verb) {
     case "status": {
       const status = await cliStatus(host);
       host.toast(noticeLine(status) ?? "rien en attente");
+
       return;
     }
-    case "debrief":
+
+    case "debrief": {
       await forceDebrief(host);
+
       return;
-    case "review":
+    }
+
+    case "review": {
       await openReview(host, pane.open, pane.redraw);
+
       return;
-    case "handoff":
+    }
+
+    case "handoff": {
       await fillHandoff(host);
+
       return;
+    }
+
     case "learn": {
       const answer = await runCli(host, ["learn", "--detach"]);
       host.toast(isJson(answer) && answer["detached"] === true ? "Learn lancé en arrière-plan" : "Learn non lancé");
+
       return;
     }
-    default:
+
+    default: {
       host.toast(`commande inconnue « ${verb} » (review, status, debrief, learn, handoff)`);
+    }
   }
 }
 
@@ -265,6 +333,7 @@ export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
     isInteractive = e.isInteractive;
     const host = makeHost($);
+
     try {
       await $.command.register({
         name: COMMAND,
@@ -274,7 +343,9 @@ export const register: Register = (on) => {
     } catch (error) {
       host.toast(`commande non enregistrée (${describe(error)})`);
     }
+
     void startup(host);
+
     return next(e);
   });
 
@@ -286,22 +357,26 @@ export const register: Register = (on) => {
         makeHost($).log(`prompt capture failed: ${describe(error)}`);
       }
     }
+
     return next(e);
   });
 
   on("turn.complete", async ($, e, next) => {
     const result = await next(e);
+
     if (e.agentId === undefined) {
       const host = makeHost($);
       void endTurn(host, e.turnId, e.isAborted, null).catch((error: unknown) =>
         host.log(`gate failed: ${describe(error)}`),
       );
     }
+
     return result;
   });
 
   on("command.run", { command: COMMAND }, async ($, e) => {
     const host = makeHost($);
+
     const pane = {
       open: async (focus: boolean) => {
         const opened = await $.ui.open(
@@ -309,17 +384,21 @@ export const register: Register = (on) => {
             ? { id: PANE, title: "hindsight · Review", focus: true, closeOnEscape: true, rows: 30 }
             : { id: PANE, title: "hindsight · Review" },
         );
+
         return opened.isPlaced;
       },
       redraw: () => $.ui.invalidate("ui.render"),
     };
-    void runCommand(host, e.args, pane).catch((error: unknown) => host.toast(`${describe(error)}`));
+
+    void runCommand(host, e.args, pane).catch((error: unknown) => host.toast(describe(error)));
+
     return {};
   });
 
   on("ui.render", { component: "Pane", requestId: PANE }, ($, e) => {
     const host = makeHost($);
     const elements = $.ui.resolve(e) as PaneElements;
+
     return drawReview(
       elements,
       review,

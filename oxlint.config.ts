@@ -159,7 +159,8 @@ export default defineConfig({
     "unicorn/prefer-array-flat": "error",
     "unicorn/prefer-at": "error",
     "unicorn/prefer-type-error": "error",
-    "unicorn/no-useless-undefined": "error",
+    // An `undefined` argument fills a required `T | undefined` parameter; the fix drops it and breaks the call.
+    "unicorn/no-useless-undefined": ["error", { checkArguments: false }],
     "unicorn/no-useless-switch-case": "error",
     "unicorn/no-instanceof-array": "error",
     "unicorn/no-array-sort": "error",

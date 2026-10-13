@@ -1,6 +1,9 @@
 {
   "name": "hindsight",
   "private": true,
+  "bin": {
+    "hindsight": "./src/cli/main.ts"
+  },
   "type": "module",
   "scripts": {
     "prepare": "effect-tsgo patch",
@@ -11,6 +14,10 @@
     "format": "oxfmt --write -c oxfmt.config.ts 'src/**/*.{ts,tsx}' 'fixtures/**/*.ts' 'tools/**/*.ts' '*.config.ts' package.json 'tsconfig*.json' bunfig.toml",
     "format:check": "oxfmt --check -c oxfmt.config.ts 'src/**/*.{ts,tsx}' 'fixtures/**/*.ts' 'tools/**/*.ts' '*.config.ts' package.json 'tsconfig*.json' bunfig.toml"
   },
+  "dependencies": {
+    "@effect/platform-bun": "4.0.4",
+    "effect": "4.0.4"
+  },
   "devDependencies": {
     "@effect/tsgo": "0.51.1",
     "@oxlint/plugins": "1.87.0",
@@ -20,12 +27,5 @@
     "oxlint-plugin-complexity": "3.0.0",
     "oxlint-tsgolint": "7.0.2003",
     "typescript": "7.0.2"
-  },
-  "dependencies": {
-    "@effect/platform-bun": "4.0.4",
-    "effect": "4.0.4"
-  },
-  "bin": {
-    "hindsight": "./src/cli/main.ts"
   }
 }

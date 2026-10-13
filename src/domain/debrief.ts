@@ -67,95 +67,162 @@ Answer with one JSON block and nothing else:
 }
 
 const FENCED_JSON = /```(?:json)?\s*([\s\S]*?)```/;
+
 const MAX_ITEMS = 12;
 
 type Json = Readonly<Record<string, unknown>>;
+
 const isJson = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
+
 const text = (source: Json, key: string): string | null => {
   const value = source[key];
+
   return typeof value === "string" && value.trim() !== "" ? value : null;
 };
 
 function extractJson(answer: string): string | null {
   const fenced = FENCED_JSON.exec(answer)?.[1];
-  if (fenced !== undefined) return fenced.trim();
+
+  if (fenced !== undefined) {
+    return fenced.trim();
+  }
+
   const start = answer.indexOf("{");
   const end = answer.lastIndexOf("}");
+
   return start !== -1 && end > start ? answer.slice(start, end + 1) : null;
 }
 
 function readList(root: Json, key: string): readonly unknown[] | null {
   const value = root[key];
-  if (value === undefined) return [];
+
+  if (value === undefined) {
+    return [];
+  }
+
   return Array.isArray(value) ? value.slice(0, MAX_ITEMS) : null;
 }
 
 function readSteer(entry: unknown): SteerNote | null {
-  if (!isJson(entry)) return null;
+  if (!isJson(entry)) {
+    return null;
+  }
+
   const quote = text(entry, "quote");
   const lesson = text(entry, "lesson");
-  if (quote === null || lesson === null) return null;
+
+  if (quote === null || lesson === null) {
+    return null;
+  }
+
   return { quote, lesson, habit: entry["habit"] === true };
 }
 
 function readObservation(entry: unknown): ObservationNote | null {
-  if (!isJson(entry)) return null;
+  if (!isJson(entry)) {
+    return null;
+  }
+
   const tool = text(entry, "tool");
   const excerpt = text(entry, "excerpt");
   const lesson = text(entry, "lesson");
   const question = entry["question"];
-  if (tool === null || excerpt === null || lesson === null) return null;
-  if (question !== 2 && question !== 3 && question !== 4) return null;
+
+  if (tool === null || excerpt === null || lesson === null) {
+    return null;
+  }
+
+  if (question !== 2 && question !== 3 && question !== 4) {
+    return null;
+  }
+
   return { question, tool, excerpt, lesson, rulePath: text(entry, "rulePath") };
 }
 
 function readStaleRule(entry: unknown): StaleRuleNote | null {
-  if (!isJson(entry)) return null;
+  if (!isJson(entry)) {
+    return null;
+  }
+
   const editedPath = text(entry, "editedPath");
   const editedExcerpt = text(entry, "editedExcerpt");
   const ruleFile = text(entry, "ruleFile");
   const oldText = text(entry, "oldText");
   const newText = entry["newText"];
   const lesson = text(entry, "lesson");
+
   if (editedPath === null || editedExcerpt === null || ruleFile === null || oldText === null || lesson === null) {
     return null;
   }
-  if (typeof newText !== "string") return null;
+
+  if (typeof newText !== "string") {
+    return null;
+  }
+
   return { editedPath, editedExcerpt, ruleFile, oldText, newText, lesson };
 }
 
 function readAll<T>(entries: readonly unknown[], read: (entry: unknown) => T | null, label: string): T[] | string {
   const notes: T[] = [];
+
   for (const [index, entry] of entries.entries()) {
     const note = read(entry);
-    if (note === null) return `${label}[${index}] lacks a required field`;
+
+    if (note === null) {
+      return `${label}[${index}] lacks a required field`;
+    }
+
     notes.push(note);
   }
+
   return notes;
 }
 
 /** Reads a Debrief's answer; a malformed one is a result, never an exception. */
 export function parseDebrief(answer: string): DebriefParse {
   const raw = extractJson(answer);
-  if (raw === null) return { ok: false, reason: "no-json", detail: "no JSON block in the answer" };
+
+  if (raw === null) {
+    return { ok: false, reason: "no-json", detail: "no JSON block in the answer" };
+  }
+
   let parsed: unknown;
+
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
     return { ok: false, reason: "invalid-json", detail: error instanceof Error ? error.message : String(error) };
   }
-  if (!isJson(parsed)) return { ok: false, reason: "bad-shape", detail: "the JSON is not an object" };
+
+  if (!isJson(parsed)) {
+    return { ok: false, reason: "bad-shape", detail: "the JSON is not an object" };
+  }
+
   const steerList = readList(parsed, "steers");
   const observationList = readList(parsed, "observations");
   const staleList = readList(parsed, "staleRules");
+
   if (steerList === null || observationList === null || staleList === null) {
     return { ok: false, reason: "bad-shape", detail: "steers, observations and staleRules must be arrays" };
   }
+
   const steers = readAll(steerList, readSteer, "steers");
-  if (typeof steers === "string") return { ok: false, reason: "bad-shape", detail: steers };
+
+  if (typeof steers === "string") {
+    return { ok: false, reason: "bad-shape", detail: steers };
+  }
+
   const observations = readAll(observationList, readObservation, "observations");
-  if (typeof observations === "string") return { ok: false, reason: "bad-shape", detail: observations };
+
+  if (typeof observations === "string") {
+    return { ok: false, reason: "bad-shape", detail: observations };
+  }
+
   const staleRules = readAll(staleList, readStaleRule, "staleRules");
-  if (typeof staleRules === "string") return { ok: false, reason: "bad-shape", detail: staleRules };
+
+  if (typeof staleRules === "string") {
+    return { ok: false, reason: "bad-shape", detail: staleRules };
+  }
+
   return { ok: true, notes: { steers, observations, staleRules } };
 }

@@ -34,7 +34,7 @@ export type NoteRow = {
 };
 
 export type Change =
-  | { readonly kind: "edit"; readonly edits: readonly { readonly oldText: string; readonly newText: string }[] }
+  | { readonly kind: "edit"; readonly edits: ReadonlyArray<{ readonly oldText: string; readonly newText: string }> }
   | { readonly kind: "description"; readonly text: string };
 
 export type Evidence = {
@@ -135,6 +135,7 @@ export function finishDebrief(
 /** A `started` row with no end after 15 minutes lost its fork: it reads `aborted`. */
 export function abortStaleDebriefs(db: SyncStore, nowIso: string): number {
   const cutoff = new Date(new Date(nowIso).getTime() - ABORT_AFTER_MS).toISOString();
+
   return db.run("UPDATE debriefs SET status = 'aborted', finished_at = ? WHERE status = 'started' AND started_at < ?", [
     nowIso,
     cutoff,
@@ -217,6 +218,7 @@ export function rejectedSessions(db: SyncStore, fingerprint: string): number | n
     "SELECT sessions_at_decision FROM decisions WHERE fingerprint = ? AND decision = 'rejected' ORDER BY at DESC LIMIT 1",
     [fingerprint],
   );
+
   return row === null ? null : row.sessions_at_decision;
 }
 
@@ -263,7 +265,9 @@ export function expireNotes(db: SyncStore, beforeIso: string): number {
 }
 
 export function markNotesUsed(db: SyncStore, ids: readonly string[]): void {
-  for (const id of ids) db.run("UPDATE notes SET status = 'used' WHERE id = ?", [id]);
+  for (const id of ids) {
+    db.run("UPDATE notes SET status = 'used' WHERE id = ?", [id]);
+  }
 }
 
 export type HistoryEntry = {
@@ -309,8 +313,13 @@ export function pendingFingerprints(db: SyncStore): Set<string> {
 /** Takes the single running slot, or returns null when a run already holds it. */
 export function reserveLearnRun(db: SyncStore, id: string, at: string): string | null {
   const running = db.get<{ id: string }>("SELECT id FROM learn_runs WHERE status = 'running'");
-  if (running !== null) return null;
+
+  if (running !== null) {
+    return null;
+  }
+
   db.run("INSERT INTO learn_runs (id, started_at, status) VALUES (?, ?, 'running')", [id, at]);
+
   return id;
 }
 
@@ -341,6 +350,7 @@ export function lastLearnFinishedAt(db: SyncStore): string | null {
 /** A run left `running` by a dead process reads failed after `staleMs`. */
 export function failStaleLearnRuns(db: SyncStore, nowIso: string, staleMs: number): number {
   const cutoff = new Date(new Date(nowIso).getTime() - staleMs).toISOString();
+
   return db.run(
     "UPDATE learn_runs SET status = 'failed', finished_at = ?, failure = 'stale' WHERE status = 'running' AND started_at < ?",
     [nowIso, cutoff],

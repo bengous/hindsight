@@ -1,5 +1,6 @@
 import type { RuleFile } from "../rules/types.ts";
 import type { HistoryEntry } from "../store/queries.ts";
+
 import { redactSecrets } from "../domain/redact.ts";
 
 /** One pending Note as Learn reads it; `markers` come from the Steer's own quote. */
@@ -102,5 +103,6 @@ export function learnPrompt(group: LearnGroup): string {
       reason: entry.reason,
     })),
   };
+
   return `${INSTRUCTIONS}\n\nDATA\n${JSON.stringify(data, null, 1)}\n`;
 }

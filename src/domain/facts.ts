@@ -1,4 +1,6 @@
-import { markersFor, type Marker } from "./human.ts";
+import type { Marker } from "./human.ts";
+
+import { markersFor } from "./human.ts";
 
 /** One tool call of a turn, reduced to what the Gate reads. */
 export type ToolUse = {
@@ -26,10 +28,14 @@ export type TurnFacts = {
   readonly prompts: number;
 };
 
-export const HUMAN_TEXT_MAX = 4_000;
+export const HUMAN_TEXT_MAX = 4000;
+
 const HUMAN_TEXTS_KEPT = 20;
+
 const RULE_FILE = /(^|\/)(AGENTS|CLAUDE)\.md$|\/\.claude\/rules\/[^/]+\.md$|\/output-styles\/[^/]+\.md$/;
+
 const GIT_COMMIT = /(^|[;&|]\s*)git\s+(-[^\s]+\s+)*commit\b/;
+
 const REFUSAL_TEXT = /user doesn't want to proceed|user rejected|rejected this tool|permission denied by the user/i;
 
 export const emptyFacts: TurnFacts = {
@@ -58,12 +64,16 @@ export function isRefusalText(text: string): boolean {
 
 /** `text` is already cleaned (`cleanHumanText`); an empty one adds nothing. */
 export function addHumanText(facts: TurnFacts, text: string): TurnFacts {
-  if (text === "") return facts;
+  if (text === "") {
+    return facts;
+  }
+
   const markers = markersFor(text, {
     isFirstPrompt: facts.prompts === 0,
     afterInterrupt: facts.afterInterrupt,
     rejectedTools: facts.refusedTools,
   });
+
   return {
     ...facts,
     humanTexts: [...facts.humanTexts, { text: text.slice(0, HUMAN_TEXT_MAX), markers }].slice(-HUMAN_TEXTS_KEPT),
@@ -76,8 +86,10 @@ export function addToolUses(facts: TurnFacts, uses: readonly ToolUse[]): TurnFac
   const edits = uses.flatMap((use) =>
     (use.tool === "Edit" || use.tool === "Write" || use.tool === "NotebookEdit") && use.path !== null ? [use.path] : [],
   );
+
   const commits = uses.filter((use) => use.tool === "Bash" && use.command !== null && isGitCommit(use.command)).length;
   const refused = uses.filter((use) => use.isRefused).map((use) => use.tool);
+
   return {
     ...facts,
     edits: [...facts.edits, ...edits],

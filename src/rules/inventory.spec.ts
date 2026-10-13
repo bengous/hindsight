@@ -1,9 +1,12 @@
+import type { InventoryEnv } from "./inventory.ts";
 import type { RuleFile } from "./types.ts";
+
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+
 import { tempDir, tempRepo, writeTree } from "../../fixtures/rules/repo.ts";
-import { inventory, type InventoryEnv } from "./inventory.ts";
+import { inventory } from "./inventory.ts";
 
 const project = tempRepo({
   "AGENTS.md": "# Project\n- Keep functions small.\n- Name things plainly.\n",
@@ -19,9 +22,11 @@ const project = tempRepo({
   ".gitignore": "CLAUDE.local.md\nnode_modules/\n",
   "node_modules/dep/CLAUDE.md": "- Vendored, ignored.\n",
 });
+
 project.write("CLAUDE.local.md", "- Personal, ignored.\n");
 
 const home = tempDir("home");
+
 writeTree(home, {
   ".claude/CLAUDE.md": "@AGENTS.md\n",
   ".claude/AGENTS.md": "- Global rule one.\n- Global rule two.\n",
@@ -38,7 +43,11 @@ afterAll(() => {
 
 function byLoaded(files: readonly RuleFile[], path: string): RuleFile {
   const file = files.find((candidate) => candidate.loadedPath === path);
-  if (file === undefined) throw new Error(`no rule file loaded from ${path}`);
+
+  if (file === undefined) {
+    throw new Error(`no rule file loaded from ${path}`);
+  }
+
   return file;
 }
 

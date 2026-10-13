@@ -1,12 +1,17 @@
 import type { HindsightConfig } from "../domain/config.ts";
+import type { ProposalState } from "../domain/proposal.ts";
+import type { ApplyResult, TextEdit } from "../rules/apply.ts";
+import type { StoreShape, SyncStore } from "../store/db.ts";
 import type { Change, Evidence, Prevalence, ProposalRow } from "../store/queries.ts";
+
 import { Effect } from "effect";
 import { existsSync, readFileSync } from "node:fs";
-import { nextProposalState, type ProposalState } from "../domain/proposal.ts";
+
+import { nextProposalState } from "../domain/proposal.ts";
 import { redactSecrets } from "../domain/redact.ts";
-import { applyChange, editedText, type ApplyResult, type TextEdit } from "../rules/apply.ts";
+import { applyChange, editedText } from "../rules/apply.ts";
 import { newId } from "../rules/ids.ts";
-import { Store, type StoreShape, type SyncStore } from "../store/db.ts";
+import { Store } from "../store/db.ts";
 
 /** One Proposal as the Review shows it; the surface (pane today, a page later) only draws it. */
 export type ReviewItem = {
@@ -49,7 +54,11 @@ export const readFileOrNull: ReadFile = (path) => (existsSync(path) ? readFileSy
 
 function parseChange(json: string): Change {
   const parsed: unknown = JSON.parse(json);
-  if (typeof parsed === "object" && parsed !== null && "kind" in parsed) return parsed as Change;
+
+  if (typeof parsed === "object" && parsed !== null && "kind" in parsed) {
+    return parsed as Change;
+  }
+
   throw new Error(`proposal change out of shape: ${json.slice(0, 80)}`);
 }
 
@@ -59,8 +68,10 @@ export function toReviewItem(row: ProposalRow, db: SyncStore): ReviewItem {
       item.kind === "quote"
         ? (db.get<{ text: string }>("SELECT text FROM messages WHERE evidence_id = ?", [item.evidenceId])?.text ?? null)
         : null;
+
     return { ...item, text: redactSecrets(item.text), message: message === null ? null : redactSecrets(message) };
   });
+
   return {
     id: row.id,
     state: row.state as ProposalState,
@@ -90,23 +101,29 @@ export function settlePending(db: SyncStore, readFile: ReadFile): { expired: num
   let expired = 0;
   let superseded = 0;
   const seen = new Set<string>();
+
   for (const row of rows) {
     const change = parseChange(row.change_json);
     const key = `${row.target_path}\0${row.bullet_id ?? (change.kind === "edit" ? (change.edits[0]?.oldText ?? "") : row.id)}`;
+
     if (seen.has(key)) {
       setState(db, row.id, "superseded");
       superseded += 1;
       continue;
     }
+
     seen.add(key);
+
     if (change.kind === "edit" && change.edits[0]?.oldText !== "") {
       const text = readFile(row.target_path);
+
       if (text === null || editedText(text, change.edits).kind === "refused") {
         setState(db, row.id, "expired");
         expired += 1;
       }
     }
   }
+
   return { expired, superseded };
 }
 
@@ -114,14 +131,18 @@ export function settlePending(db: SyncStore, readFile: ReadFile): { expired: num
 export const listReview = (config: HindsightConfig, readFile: ReadFile = readFileOrNull) =>
   Effect.gen(function* () {
     const store = yield* Store;
+
     return yield* store.transaction((db) => {
       const settled = settlePending(db, readFile);
       const rows = db.all<ProposalRow>("SELECT * FROM proposals WHERE state = 'pending'");
+
       const items = rows
         .map((row) => toReviewItem(row, db))
         .toSorted((a, b) => b.prevalence.sessions - a.prevalence.sessions || a.createdAt.localeCompare(b.createdAt))
         .slice(0, config.review.pageSize);
+
       const pending = rows.length;
+
       return { items, pending, ...settled };
     });
   });
@@ -152,18 +173,22 @@ function recordDecision(
 const loadPending = (store: StoreShape, id: string) =>
   store.transaction((db) => {
     const row = db.get<ProposalRow>("SELECT * FROM proposals WHERE id = ?", [id]);
+
     return row === null ? null : toReviewItem(row, db);
   });
 
 /** The texts a commit message must not hold: the evidence and the cited messages, before any masking. */
 function rawExcerpts(db: SyncStore, row: ProposalRow): string[] {
   const evidence = JSON.parse(row.evidence_json) as Evidence[];
+
   const messages = evidence
     .filter((item) => item.kind === "quote")
     .flatMap((item) => {
       const found = db.get<{ text: string }>("SELECT text FROM messages WHERE evidence_id = ?", [item.evidenceId]);
+
       return found === null ? [] : [found.text];
     });
+
   return [...evidence.map((item) => item.text), ...messages];
 }
 
@@ -171,9 +196,14 @@ function rawExcerpts(db: SyncStore, row: ProposalRow): string[] {
 const reserveAccept = (store: StoreShape, id: string, nowIso: string) =>
   store.transaction((db) => {
     const row = db.get<ProposalRow>("SELECT * FROM proposals WHERE id = ? AND state = 'pending'", [id]);
-    if (row === null) return null;
+
+    if (row === null) {
+      return null;
+    }
+
     const item = toReviewItem(row, db);
     recordDecision(db, item, "accepted", { reason: null, edits: null, commit: null }, nowIso);
+
     return { item, excerpts: rawExcerpts(db, row) };
   });
 
@@ -188,36 +218,52 @@ export const decideProposal = (id: string, decision: Decision, nowIso: string = 
   Effect.gen(function* () {
     const store = yield* Store;
     const item = yield* loadPending(store, id);
-    if (item === null) return { kind: "refused", reason: `no proposal ${id}` } satisfies DecisionOutcome;
+
+    if (item === null) {
+      return { kind: "refused", reason: `no proposal ${id}` } satisfies DecisionOutcome;
+    }
+
     if (nextProposalState(item.state, decision.kind) === null) {
       return { kind: "refused", reason: `proposal is ${item.state}` } satisfies DecisionOutcome;
     }
+
     switch (decision.kind) {
       case "reject": {
-        if (decision.reason.trim() === "")
+        if (decision.reason.trim() === "") {
           return { kind: "refused", reason: "a rejection needs a reason" } satisfies DecisionOutcome;
+        }
+
         yield* store.transaction((db) =>
           recordDecision(db, item, "rejected", { reason: decision.reason.trim(), edits: null, commit: null }, nowIso),
         );
+
         return { kind: "rejected" } satisfies DecisionOutcome;
       }
+
       case "handoff": {
         yield* store.transaction((db) =>
           recordDecision(db, item, "handed_off", { reason: null, edits: null, commit: null }, nowIso),
         );
+
         return { kind: "handed_off" } satisfies DecisionOutcome;
       }
+
       case "accept": {
-        if (item.change.kind !== "edit")
+        if (item.change.kind !== "edit") {
           return {
             kind: "refused",
             reason: "a description can only be handed off or rejected",
           } satisfies DecisionOutcome;
+        }
+
         const edits = decision.edits ?? item.change.edits;
         const reserved = yield* reserveAccept(store, id, nowIso);
-        if (reserved === null)
+
+        if (reserved === null) {
           return { kind: "refused", reason: "proposal is no longer pending" } satisfies DecisionOutcome;
-        const apply = yield* Effect.promise(() =>
+        }
+
+        const apply = yield* Effect.promise(async () =>
           applyChange({
             proposalId: item.id,
             targetPath: item.targetPath,
@@ -229,10 +275,13 @@ export const decideProposal = (id: string, decision: Decision, nowIso: string = 
             excerpts: reserved.excerpts,
           }),
         );
+
         if (apply.kind === "refused") {
           yield* releaseAccept(store, id);
+
           return { kind: "refused", reason: `${apply.reason}: ${apply.detail}` } satisfies DecisionOutcome;
         }
+
         yield* store.transaction((db) =>
           db.run(
             "UPDATE decisions SET commit_sha = ?, edited_change_json = ? WHERE proposal_id = ? AND decision = 'accepted'",
@@ -243,15 +292,21 @@ export const decideProposal = (id: string, decision: Decision, nowIso: string = 
             ],
           ),
         );
+
         return { kind: "accepted", apply } satisfies DecisionOutcome;
       }
-      default:
+
+      default: {
         return { kind: "refused", reason: "unknown decision" } satisfies DecisionOutcome;
+      }
     }
   });
 
 function changeInstructions(item: ReviewItem): string {
-  if (item.change.kind === "description") return item.change.text;
+  if (item.change.kind === "description") {
+    return item.change.text;
+  }
+
   return item.change.edits
     .map((edit) =>
       edit.oldText === ""
@@ -265,23 +320,31 @@ function changeInstructions(item: ReviewItem): string {
 export const prepareHandoff = (nowIso: string = new Date().toISOString()) =>
   Effect.gen(function* () {
     const store = yield* Store;
+
     return yield* store.transaction((db) => {
       const rows = db.all<ProposalRow>(
         `SELECT * FROM proposals WHERE state = 'handed_off' AND id NOT IN (
            SELECT value FROM handoffs, json_each(handoffs.proposal_ids_json)
          ) ORDER BY created_at`,
       );
-      if (rows.length === 0) return { id: null, instructions: null, proposals: 0 };
+
+      if (rows.length === 0) {
+        return { id: null, instructions: null, proposals: 0 };
+      }
+
       const items = rows.map((row) => toReviewItem(row, db));
+
       const sections = items.map(
         (item, index) =>
           `## ${index + 1}. ${item.targetPath}\n\n${item.claimFr}\n\nLesson: ${item.lessonEn}\n\n${changeInstructions(item)}`,
       );
+
       const instructions = [
         "hindsight handoff: apply the following Rule File changes, one commit per file, without pushing. Each change was reviewed by the human; carry it out as written and say what you changed.",
         "",
         ...sections,
       ].join("\n");
+
       const id = newId();
       db.run("INSERT INTO handoffs (id, created_at, proposal_ids_json, instructions) VALUES (?, ?, ?, ?)", [
         id,
@@ -289,6 +352,7 @@ export const prepareHandoff = (nowIso: string = new Date().toISOString()) =>
         JSON.stringify(items.map((item) => item.id)),
         instructions,
       ]);
+
       return { id, instructions, proposals: items.length };
     });
   });

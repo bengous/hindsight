@@ -20,13 +20,20 @@ export async function runCli(
   options: { readonly stdin?: string; readonly timeoutMs?: number } = {},
 ): Promise<unknown> {
   const argv = ["bun", `${host.pluginRoot}/src/cli/main.ts`, ...args, "--json"];
+
   const init = {
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     ...(options.stdin === undefined ? {} : { stdin: options.stdin }),
   };
+
   const result = await host.run(argv, init);
-  if (result.exitCode !== 0) throw new CliError(argv, result.exitCode, result.stderr);
+
+  if (result.exitCode !== 0) {
+    throw new CliError(argv, result.exitCode, result.stderr);
+  }
+
   const line = result.stdout.trim().split("\n").at(-1) ?? "";
+
   try {
     return JSON.parse(line);
   } catch {
@@ -35,6 +42,7 @@ export async function runCli(
 }
 
 type Json = Readonly<Record<string, unknown>>;
+
 const isJson = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
 
 export async function cliConfig(host: Host): Promise<unknown> {
@@ -47,6 +55,7 @@ export async function cliStatus(host: Host): Promise<StatusSummary> {
   const answer = await runCli(host, ["status"]);
   const pending = isJson(answer) ? answer["pendingProposals"] : 0;
   const failures = isJson(answer) && Array.isArray(answer["failures"]) ? answer["failures"].length : 0;
+
   return { pendingProposals: typeof pending === "number" ? pending : 0, failures };
 }
 
@@ -58,8 +67,13 @@ export async function cliDebriefStart(host: Host, sessionId: string, repoRoot: s
     sessionId,
     ...(repoRoot === null ? [] : ["--repo", repoRoot]),
   ]);
+
   const id = isJson(answer) ? answer["id"] : undefined;
-  if (typeof id !== "string") throw new Error("debrief start answered without an id");
+
+  if (typeof id !== "string") {
+    throw new TypeError("debrief start answered without an id");
+  }
+
   return id;
 }
 
@@ -80,9 +94,14 @@ export async function cliDebriefRecord(
     stdin: JSON.stringify(body),
     timeoutMs: 120_000,
   });
-  if (!isJson(answer) || typeof answer["status"] !== "string") throw new Error("debrief record answered out of shape");
+
+  if (!isJson(answer) || typeof answer["status"] !== "string") {
+    throw new Error("debrief record answered out of shape");
+  }
+
   const notes = isJson(answer["notes"]) ? answer["notes"] : {};
-  const count = (key: string): number => (typeof notes[key] === "number" ? (notes[key] as number) : 0);
+  const count = (key: string): number => (typeof notes[key] === "number" ? notes[key] : 0);
+
   return {
     status: answer["status"],
     failure: typeof answer["failure"] === "string" ? answer["failure"] : null,

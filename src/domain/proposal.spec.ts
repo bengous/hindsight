@@ -1,5 +1,8 @@
+import type { ProposalEvent, ProposalState } from "./proposal.ts";
+
 import { describe, expect, test } from "bun:test";
-import { nextProposalState, type ProposalEvent, type ProposalState } from "./proposal.ts";
+
+import { nextProposalState } from "./proposal.ts";
 
 describe("nextProposalState", () => {
   test("a pending Proposal moves once, to the state its event names", () => {
@@ -13,6 +16,11 @@ describe("nextProposalState", () => {
   test("a settled Proposal never moves again", () => {
     const settled: ProposalState[] = ["accepted", "handed_off", "rejected", "superseded", "expired"];
     const events: ProposalEvent[] = ["accept", "handoff", "reject", "supersede", "expire"];
-    for (const state of settled) for (const event of events) expect(nextProposalState(state, event)).toBeNull();
+
+    for (const state of settled) {
+      for (const event of events) {
+        expect(nextProposalState(state, event)).toBeNull();
+      }
+    }
   });
 });

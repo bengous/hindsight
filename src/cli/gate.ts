@@ -1,5 +1,6 @@
 import { Effect, Schema } from "effect";
 import { Command, Flag } from "effect/cli";
+
 import { replayGate } from "../gate/replay.ts";
 import { Store } from "../store/db.ts";
 import { insertGateDecision } from "../store/queries.ts";
@@ -31,7 +32,7 @@ const replay = Command.make(
   Effect.fn(function* ({ days }) {
     const paths = yield* AppPaths;
     const config = yield* AppConfig;
-    yield* printJson(yield* Effect.promise(() => replayGate(paths.projectsDir, days, config)));
+    yield* printJson(yield* Effect.promise(async () => replayGate(paths.projectsDir, days, config)));
   }),
 ).pipe(Command.withDescription("Runs the Gate's code, without a model, over past transcripts"));
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { redactSecrets } from "./redact.ts";
 
 describe("redactSecrets", () => {
@@ -14,6 +15,7 @@ describe("redactSecrets", () => {
     const block = ["-----BEGIN OPENSSH PRIVATE KEY-----", "b3BlbnNzaA==", "-----END OPENSSH PRIVATE KEY-----"].join(
       "\n",
     );
+
     expect(redactSecrets(`key:\n${block}\ndone`)).toBe("key:\n[REDACTED]\ndone");
   });
 });

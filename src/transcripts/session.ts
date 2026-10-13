@@ -1,8 +1,11 @@
+import type { JsonRecord } from "./json.ts";
+
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+
 import { cleanHumanText, slashCommand } from "../domain/human.ts";
-import { contentText, isRecord, recordField, recordsField, stringField, type JsonRecord } from "./json.ts";
+import { contentText, isRecord, recordField, recordsField, stringField } from "./json.ts";
 import { forEachEntry } from "./read.ts";
 
 export type LoadedRuleSource = "instructions" | "nested_memory" | "output_style";
@@ -51,6 +54,7 @@ export type SessionRecord = {
 };
 
 const INTERRUPT_PREFIX = "[Request interrupted by user";
+
 const PATH_INPUTS: Readonly<Record<string, string>> = {
   Read: "file_path",
   Edit: "file_path",
@@ -68,19 +72,32 @@ export function toolEvents(record: SessionRecord): readonly ToolEvent[] {
 
 /** The text an Edit or Write put in its file, or null for another tool. */
 export function editedText(event: ToolEvent): string | null {
-  if (event.tool === "Edit") return stringField(event.input, "new_string");
-  if (event.tool === "Write") return stringField(event.input, "content");
+  if (event.tool === "Edit") {
+    return stringField(event.input, "new_string");
+  }
+
+  if (event.tool === "Write") {
+    return stringField(event.input, "content");
+  }
+
   return null;
 }
 
 export function editedPath(event: ToolEvent): string | null {
   const key = PATH_INPUTS[event.tool];
+
   return key === undefined ? null : stringField(event.input, key);
 }
 
 export function absolutePath(path: string, cwd: string | null, home: string = homedir()): string {
-  if (path.startsWith("~/")) return join(home, path.slice(2));
-  if (isAbsolute(path) || cwd === null) return path;
+  if (path.startsWith("~/")) {
+    return join(home, path.slice(2));
+  }
+
+  if (isAbsolute(path) || cwd === null) {
+    return path;
+  }
+
   return resolve(cwd, path);
 }
 
@@ -91,21 +108,38 @@ type Classified =
 
 /** Which user entries are the human's own words: the prototype's rules, kept as the oracle. */
 export function classifyUserEntry(entry: JsonRecord): Classified {
-  if (entry["toolUseResult"] !== undefined) return { kind: "other" };
+  if (entry["toolUseResult"] !== undefined) {
+    return { kind: "other" };
+  }
+
   if (entry["isMeta"] === true || entry["isCompactSummary"] === true || entry["isVisibleInTranscriptOnly"] === true) {
     return { kind: "other" };
   }
+
   if (stringField(entry, "entrypoint") === "sdk-cli" || stringField(entry, "promptSource") === "sdk") {
     return { kind: "other" };
   }
+
   const message = recordField(entry, "message");
   const raw = message === null ? "" : contentText(message["content"]);
-  if (raw.trimStart().startsWith(INTERRUPT_PREFIX)) return { kind: "interrupt" };
+
+  if (raw.trimStart().startsWith(INTERRUPT_PREFIX)) {
+    return { kind: "interrupt" };
+  }
+
   const origin = recordField(entry, "origin");
-  if (origin === null || stringField(origin, "kind") !== "human") return { kind: "other" };
+
+  if (origin === null || stringField(origin, "kind") !== "human") {
+    return { kind: "other" };
+  }
+
   const text = cleanHumanText(raw);
   const command = slashCommand(text);
-  if (command !== null) return command.args === "" ? { kind: "other" } : { kind: "typed", text: command.args };
+
+  if (command !== null) {
+    return command.args === "" ? { kind: "other" } : { kind: "typed", text: command.args };
+  }
+
   return text === "" ? { kind: "other" } : { kind: "typed", text };
 }
 
@@ -130,12 +164,17 @@ type PendingTool = {
 
 function required(entry: JsonRecord, key: string, path: string): string {
   const value = stringField(entry, key);
-  if (value === null) throw new Error(`${path}: ${stringField(entry, "type")} entry without "${key}"`);
+
+  if (value === null) {
+    throw new Error(`${path}: ${stringField(entry, "type")} entry without "${key}"`);
+  }
+
   return value;
 }
 
 export function resolveOutputStylePath(name: string, styleDirs: readonly string[]): string {
   const file = styleDirs.map((dir) => join(dir, `${name}.md`)).find((candidate) => existsSync(candidate));
+
   return file ?? `output-style:${name}`;
 }
 
@@ -156,11 +195,19 @@ async function scanFile(path: string, home: string): Promise<Scan> {
 
   const onAssistant = (entry: JsonRecord): void => {
     const message = recordField(entry, "message");
+
     for (const block of message === null ? [] : recordsField(message, "content")) {
-      if (stringField(block, "type") !== "tool_use") continue;
+      if (stringField(block, "type") !== "tool_use") {
+        continue;
+      }
+
       const id = stringField(block, "id");
       const name = stringField(block, "name");
-      if (id === null || name === null) continue;
+
+      if (id === null || name === null) {
+        continue;
+      }
+
       pending.set(id, {
         uuid: required(entry, "uuid", path),
         sessionId: required(entry, "sessionId", path),
@@ -174,7 +221,11 @@ async function scanFile(path: string, home: string): Promise<Scan> {
   const onToolResult = (entry: JsonRecord, block: JsonRecord): void => {
     const toolUseId = stringField(block, "tool_use_id");
     const call = toolUseId === null ? null : (pending.get(toolUseId) ?? null);
-    if (call === null || toolUseId === null) return;
+
+    if (call === null || toolUseId === null) {
+      return;
+    }
+
     pending.delete(toolUseId);
     const denial = stringField(entry, "toolDenialKind");
     const isError = block["is_error"] === true;
@@ -194,14 +245,21 @@ async function scanFile(path: string, home: string): Promise<Scan> {
 
   const onUser = (entry: JsonRecord): void => {
     const message = recordField(entry, "message");
+
     const results = (message === null ? [] : recordsField(message, "content")).filter(
       (block) => stringField(block, "type") === "tool_result",
     );
+
     if (results.length > 0) {
-      for (const result of results) onToolResult(entry, result);
+      for (const result of results) {
+        onToolResult(entry, result);
+      }
+
       return;
     }
+
     const classified = classifyUserEntry(entry);
+
     if (classified.kind === "interrupt") {
       events.push({ kind: "interrupt", timestamp: required(entry, "timestamp", path) });
     } else if (classified.kind === "typed") {
@@ -217,68 +275,118 @@ async function scanFile(path: string, home: string): Promise<Scan> {
 
   const onAttachment = (entry: JsonRecord): void => {
     const attachment = recordField(entry, "attachment");
-    if (attachment === null) return;
+
+    if (attachment === null) {
+      return;
+    }
+
     switch (stringField(attachment, "type")) {
-      case "instructions":
+      case "instructions": {
         for (const file of recordsField(attachment, "files")) {
           const filePath = stringField(file, "path");
-          if (filePath !== null)
+
+          if (filePath !== null) {
             load({ path: filePath, source: "instructions", content: stringField(file, "content") });
+          }
         }
+
         return;
+      }
+
       case "nested_memory": {
         const filePath = stringField(attachment, "path");
         const content = attachment["content"];
         const text = typeof content === "string" ? content : isRecord(content) ? stringField(content, "content") : null;
-        if (filePath !== null) load({ path: filePath, source: "nested_memory", content: text });
+
+        if (filePath !== null) {
+          load({ path: filePath, source: "nested_memory", content: text });
+        }
+
         return;
       }
+
       case "output_style_instructions": {
         const style = recordField(attachment, "style");
         const name = style === null ? null : stringField(style, "name");
-        if (style === null || name === null) return;
+
+        if (style === null || name === null) {
+          return;
+        }
+
         const entryCwd = stringField(entry, "cwd") ?? cwd;
+
         const styleDirs = [
           ...(entryCwd === null ? [] : [join(entryCwd, ".claude", "output-styles")]),
           join(home, ".claude", "output-styles"),
         ];
+
         load({
           path: resolveOutputStylePath(name, styleDirs),
           source: "output_style",
           content: stringField(style, "prompt"),
         });
+
         return;
       }
-      default:
+
+      default: {
         return;
+      }
     }
   };
 
   await forEachEntry(path, (entry) => {
     const type = stringField(entry, "type");
     const timestamp = stringField(entry, "timestamp");
+
     if (timestamp !== null) {
-      if (firstAt === null || timestamp < firstAt) firstAt = timestamp;
-      if (lastAt === null || timestamp > lastAt) lastAt = timestamp;
+      if (firstAt === null || timestamp < firstAt) {
+        firstAt = timestamp;
+      }
+
+      if (lastAt === null || timestamp > lastAt) {
+        lastAt = timestamp;
+      }
     }
-    if (stringField(entry, "entrypoint") === "sdk-cli") sdk = true;
+
+    if (stringField(entry, "entrypoint") === "sdk-cli") {
+      sdk = true;
+    }
+
     sessionId ??= stringField(entry, "sessionId");
-    if (cwd === null && (type === "user" || type === "assistant")) cwd = stringField(entry, "cwd");
+
+    if (cwd === null && (type === "user" || type === "assistant")) {
+      cwd = stringField(entry, "cwd");
+    }
+
     switch (type) {
-      case "assistant":
+      case "assistant": {
         onAssistant(entry);
+
         return;
-      case "user":
+      }
+
+      case "user": {
         onUser(entry);
+
         return;
-      case "attachment":
+      }
+
+      case "attachment": {
         onAttachment(entry);
+
         return;
-      case "continued-in":
+      }
+
+      case "continued-in": {
         continuedIn = stringField(entry, "continuedInSessionId") ?? continuedIn;
+
         return;
-      default:
+      }
+
+      default: {
         return;
+      }
     }
   });
 
@@ -287,10 +395,14 @@ async function scanFile(path: string, home: string): Promise<Scan> {
 
 /** `<projectsDir>/<project>/<sessionId>.jsonl`, or null when no project holds it. */
 export async function findSessionFile(projectsDir: string, sessionId: string): Promise<string | null> {
-  if (!existsSync(projectsDir)) return null;
+  if (!existsSync(projectsDir)) {
+    return null;
+  }
+
   for await (const relative of new Bun.Glob(`*/${sessionId}.jsonl`).scan({ cwd: projectsDir, onlyFiles: true })) {
     return join(projectsDir, relative);
   }
+
   return null;
 }
 
@@ -299,12 +411,21 @@ const CONTINUED_IN = /"continuedInSessionId"\s*:\s*"([^"]+)"/;
 /** Which session each file of the project continues into, read without parsing whole files. */
 async function continuations(projectDir: string): Promise<ReadonlyMap<string, string>> {
   const links = new Map<string, string>();
+
   for await (const relative of new Bun.Glob("*.jsonl").scan({ cwd: projectDir, onlyFiles: true })) {
     const text = await Bun.file(join(projectDir, relative)).text();
-    if (!text.includes("continuedInSessionId")) continue;
+
+    if (!text.includes("continuedInSessionId")) {
+      continue;
+    }
+
     const target = CONTINUED_IN.exec(text)?.[1];
-    if (target !== undefined) links.set(relative.slice(0, -".jsonl".length), target);
+
+    if (target !== undefined) {
+      links.set(relative.slice(0, -".jsonl".length), target);
+    }
   }
+
   return links;
 }
 
@@ -312,9 +433,14 @@ async function predecessors(projectDir: string, sessionId: string, seen: Set<str
   const links = await continuations(projectDir);
   const chain: string[] = [];
   let target = sessionId;
+
   for (;;) {
     const found = [...links].find(([from, to]) => to === target && !seen.has(from))?.[0];
-    if (found === undefined) return chain.reverse();
+
+    if (found === undefined) {
+      return chain.reverse();
+    }
+
     seen.add(found);
     chain.push(found);
     target = found;
@@ -328,18 +454,31 @@ export async function readSession(
   home: string = homedir(),
 ): Promise<SessionRecord | null> {
   const file = await findSessionFile(projectsDir, sessionId);
-  if (file === null) return null;
+
+  if (file === null) {
+    return null;
+  }
+
   const projectDir = join(file, "..");
   const seen = new Set([sessionId]);
   const chain = [...(await predecessors(projectDir, sessionId, seen)), sessionId];
   const scans: Scan[] = [];
-  for (const id of chain) scans.push(await scanFile(join(projectDir, `${id}.jsonl`), home));
+
+  for (const id of chain) {
+    scans.push(await scanFile(join(projectDir, `${id}.jsonl`), home));
+  }
+
   const rules = new Map<string, LoadedRule>();
-  for (const rule of scans.flatMap((scan) => scan.loadedRules)) rules.set(`${rule.source}\0${rule.path}`, rule);
+
+  for (const rule of scans.flatMap((scan) => scan.loadedRules)) {
+    rules.set(`${rule.source}\0${rule.path}`, rule);
+  }
+
   const instants = scans
     .flatMap((scan) => [scan.firstAt, scan.lastAt])
     .filter((at): at is string => at !== null)
     .sort();
+
   return {
     sessionId,
     chain,
@@ -354,7 +493,11 @@ export async function readSession(
 
 export async function scanSessionFile(path: string, home: string = homedir()): Promise<SessionRecord | null> {
   const scan = await scanFile(path, home);
-  if (scan.sessionId === null) return null;
+
+  if (scan.sessionId === null) {
+    return null;
+  }
+
   return {
     sessionId: scan.sessionId,
     chain: [scan.sessionId],

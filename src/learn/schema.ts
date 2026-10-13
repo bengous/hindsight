@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+
 import { VERDICTS } from "../domain/proposal.ts";
 
 const Edit = Schema.Struct({ oldText: Schema.String, newText: Schema.String });
@@ -26,6 +27,7 @@ export const CandidateSchema = Schema.Struct({
 export const LearnOutputSchema = Schema.Struct({ candidates: Schema.Array(CandidateSchema) });
 
 export type LearnOutput = typeof LearnOutputSchema.Type;
+
 export type Candidate = typeof CandidateSchema.Type;
 
 export const decodeLearnOutput = Schema.decodeUnknownSync(LearnOutputSchema);

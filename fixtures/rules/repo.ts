@@ -29,11 +29,17 @@ export function tempRepo(files: Readonly<Record<string, string>>): TempRepo {
   const hooks = join(base, "hooks");
   mkdirSync(root);
   mkdirSync(hooks);
+
   const git = (...args: string[]): string => {
     const result = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
-    if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
+
+    if (result.exitCode !== 0) {
+      throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
+    }
+
     return result.stdout.toString();
   };
+
   git("init", "-q", "-b", "main");
   git("config", "user.name", "Fixture");
   git("config", "user.email", "fixture@example.invalid");
@@ -42,6 +48,7 @@ export function tempRepo(files: Readonly<Record<string, string>>): TempRepo {
   writeTree(root, files);
   git("add", "-A");
   git("commit", "-q", "--allow-empty", "-m", "fixture");
+
   return {
     root,
     hooks,

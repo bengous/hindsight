@@ -1,14 +1,13 @@
 import type { HindsightConfig } from "../domain/config.ts";
+import type { DebriefNotes, ObservationNote, StaleRuleNote, SteerNote } from "../domain/debrief.ts";
 import type { SyncStore } from "../store/db.ts";
+import type { Evidence } from "../store/queries.ts";
+import type { HumanEvent, SessionRecord, ToolEvent } from "../transcripts/session.ts";
+
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
-import {
-  parseDebrief,
-  type DebriefNotes,
-  type ObservationNote,
-  type StaleRuleNote,
-  type SteerNote,
-} from "../domain/debrief.ts";
+
+import { parseDebrief } from "../domain/debrief.ts";
 import { collapseWhitespace, containsVerbatim } from "../domain/text.ts";
 import { gitToplevelSync } from "../rules/git.ts";
 import { fingerprint, newId } from "../rules/ids.ts";
@@ -20,18 +19,8 @@ import {
   pendingProposalByFingerprint,
   rejectedSessions,
   upsertMessage,
-  type Evidence,
 } from "../store/queries.ts";
-import {
-  absolutePath,
-  editedPath,
-  editedText,
-  humanEvents,
-  toolEvents,
-  type HumanEvent,
-  type SessionRecord,
-  type ToolEvent,
-} from "../transcripts/session.ts";
+import { absolutePath, editedPath, editedText, humanEvents, toolEvents } from "../transcripts/session.ts";
 
 export type RecordInput = {
   readonly id: string;
@@ -89,7 +78,11 @@ export function locateQuote(humans: readonly HumanEvent[], quote: string): Human
 
 export function locateObservation(tools: readonly ToolEvent[], note: ObservationNote): ToolEvent | null {
   const needle = collapseWhitespace(note.excerpt);
-  if (needle.length < MIN_EXCERPT) return null;
+
+  if (needle.length < MIN_EXCERPT) {
+    return null;
+  }
+
   return (
     tools.find(
       (tool) =>
@@ -101,18 +94,30 @@ export function locateObservation(tools: readonly ToolEvent[], note: Observation
 
 function sameFile(candidate: string, cited: string, cwd: string | null): boolean {
   const absolute = absolutePath(cited, cwd);
+
   return candidate === absolute || basename(candidate) === cited || candidate.endsWith(`/${cited}`);
 }
 
 export function locateEdit(tools: readonly ToolEvent[], note: StaleRuleNote, cwd: string | null): ToolEvent | null {
   const needle = collapseWhitespace(note.editedExcerpt);
-  if (needle.length < MIN_EXCERPT) return null;
+
+  if (needle.length < MIN_EXCERPT) {
+    return null;
+  }
+
   return (
     tools.find((tool) => {
-      if (tool.isError || tool.isRefused) return false;
+      if (tool.isError || tool.isRefused) {
+        return false;
+      }
+
       const path = editedPath(tool);
       const text = editedText(tool);
-      if (path === null || text === null) return false;
+
+      if (path === null || text === null) {
+        return false;
+      }
+
       return sameFile(absolutePath(path, cwd), note.editedPath, cwd) && collapseWhitespace(text).includes(needle);
     }) ?? null
   );
@@ -120,7 +125,11 @@ export function locateEdit(tools: readonly ToolEvent[], note: StaleRuleNote, cwd
 
 function occurrences(text: string, needle: string): number {
   let count = 0;
-  for (let at = text.indexOf(needle); at !== -1; at = text.indexOf(needle, at + 1)) count += 1;
+
+  for (let at = text.indexOf(needle); at !== -1; at = text.indexOf(needle, at + 1)) {
+    count += 1;
+  }
+
   return count;
 }
 
@@ -128,6 +137,7 @@ function resolveRuleFile(note: StaleRuleNote, session: SessionRecord): string {
   const loaded = session.loadedRules.find(
     (rule) => rule.path === note.ruleFile || rule.path.endsWith(`/${note.ruleFile}`),
   );
+
   return loaded?.path ?? absolutePath(note.ruleFile, session.cwd);
 }
 
@@ -149,12 +159,15 @@ function storeSteer(
   tools: readonly ToolEvent[],
 ): boolean {
   const human = locateQuote(humans, note.quote);
+
   if (human === null) {
     const needle = collapseWhitespace(note.quote);
     const fromTool = tools.some((tool) => collapseWhitespace(tool.outputText).includes(needle));
     ctx.rejections.add(fromTool ? "quote-from-tool" : "quote-missing");
+
     return false;
   }
+
   const evidenceId = `${human.sessionId}:${human.uuid}`;
   upsertMessage(ctx.db, {
     evidenceId,
@@ -176,15 +189,19 @@ function storeSteer(
     body: { quote: note.quote, habit: note.habit },
     loadedRules: ctx.loadedRules,
   });
+
   return true;
 }
 
 function storeObservation(ctx: Context, note: ObservationNote, tools: readonly ToolEvent[]): boolean {
   const tool = locateObservation(tools, note);
+
   if (tool === null) {
     ctx.rejections.add("observation-missing");
+
     return false;
   }
+
   insertNote(ctx.db, {
     id: newId(),
     debriefId: ctx.input.id,
@@ -198,6 +215,7 @@ function storeObservation(ctx: Context, note: ObservationNote, tools: readonly T
     body: { question: note.question, tool: note.tool, excerpt: note.excerpt, rulePath: note.rulePath },
     loadedRules: ctx.loadedRules,
   });
+
   return true;
 }
 
@@ -207,27 +225,39 @@ function storeStaleRule(
   tools: readonly ToolEvent[],
 ): { note: boolean; proposal: boolean } {
   const edit = locateEdit(tools, note, ctx.session.cwd);
+
   if (edit === null) {
     ctx.rejections.add("stale-edit-missing");
+
     return { note: false, proposal: false };
   }
+
   const editedFile = absolutePath(editedPath(edit) ?? note.editedPath, ctx.session.cwd);
   const current = ctx.deps.readFile(editedFile);
+
   if (current === null || !collapseWhitespace(current).includes(collapseWhitespace(note.editedExcerpt))) {
     ctx.rejections.add("stale-file-changed");
+
     return { note: false, proposal: false };
   }
+
   const ruleFile = resolveRuleFile(note, ctx.session);
   const ruleText = ctx.deps.readFile(ruleFile);
+
   if (ruleText === null || occurrences(ruleText, note.oldText) !== 1) {
     ctx.rejections.add("stale-rule-text");
+
     return { note: false, proposal: false };
   }
+
   const print = fingerprint(ruleFile, note.lesson);
+
   if (rejectedSessions(ctx.db, print) !== null) {
     ctx.rejections.add("ledger-rejected");
+
     return { note: false, proposal: false };
   }
+
   const evidenceId = `${edit.sessionId}:${edit.uuid}`;
   insertNote(ctx.db, {
     id: newId(),
@@ -248,7 +278,11 @@ function storeStaleRule(
     },
     loadedRules: ctx.loadedRules,
   });
-  if (pendingProposalByFingerprint(ctx.db, print) !== null) return { note: true, proposal: false };
+
+  if (pendingProposalByFingerprint(ctx.db, print) !== null) {
+    return { note: true, proposal: false };
+  }
+
   const evidence: Evidence[] = [
     {
       evidenceId,
@@ -259,10 +293,12 @@ function storeStaleRule(
       tool: edit.tool,
     },
   ];
+
   const ruleRepo =
     ctx.input.repoRoot !== null && ruleFile.startsWith(`${ctx.input.repoRoot}/`)
       ? ctx.input.repoRoot
       : ctx.deps.repoOf(ruleFile);
+
   const isGlobal = ruleRepo === null;
   insertProposal(ctx.db, {
     id: newId(),
@@ -289,6 +325,7 @@ function storeStaleRule(
     bulletId: null,
     learnRunId: null,
   });
+
   return { note: true, proposal: true };
 }
 
@@ -299,13 +336,31 @@ function storeNotes(ctx: Context, notes: DebriefNotes): RecordOutcome["notes"] &
   let observations = 0;
   let staleRules = 0;
   let proposals = 0;
-  for (const note of notes.steers) if (storeSteer(ctx, note, humans, tools)) steers += 1;
-  for (const note of notes.observations) if (storeObservation(ctx, note, tools)) observations += 1;
+
+  for (const note of notes.steers) {
+    if (storeSteer(ctx, note, humans, tools)) {
+      steers += 1;
+    }
+  }
+
+  for (const note of notes.observations) {
+    if (storeObservation(ctx, note, tools)) {
+      observations += 1;
+    }
+  }
+
   for (const note of notes.staleRules) {
     const stored = storeStaleRule(ctx, note, tools);
-    if (stored.note) staleRules += 1;
-    if (stored.proposal) proposals += 1;
+
+    if (stored.note) {
+      staleRules += 1;
+    }
+
+    if (stored.proposal) {
+      proposals += 1;
+    }
   }
+
   return { steers, observations, staleRules, proposals };
 }
 
@@ -319,9 +374,17 @@ export function recordDebrief(
 ): RecordOutcome {
   const at = deps.now();
   const row = getDebrief(db, input.id);
-  if (row === null) throw new Error(`debrief ${input.id} not found`);
-  if (row.status !== "started") throw new Error(`debrief ${input.id} is already ${row.status}`);
+
+  if (row === null) {
+    throw new Error(`debrief ${input.id} not found`);
+  }
+
+  if (row.status !== "started") {
+    throw new Error(`debrief ${input.id} is already ${row.status}`);
+  }
+
   const rejections = new Rejections();
+
   const fail = (failure: string): RecordOutcome => {
     finishDebrief(db, {
       id: input.id,
@@ -333,6 +396,7 @@ export function recordDebrief(
       rejected: {},
       answer: input.text,
     });
+
     return {
       id: input.id,
       status: "failed",
@@ -342,10 +406,21 @@ export function recordDebrief(
       rejected: {},
     };
   };
-  if (input.cacheShare < config.gate.minCacheShare) return fail(`cache:${input.cacheShare.toFixed(2)}`);
-  if (session === null) return fail("session-not-found");
+
+  if (input.cacheShare < config.gate.minCacheShare) {
+    return fail(`cache:${input.cacheShare.toFixed(2)}`);
+  }
+
+  if (session === null) {
+    return fail("session-not-found");
+  }
+
   const parsed = parseDebrief(input.text);
-  if (!parsed.ok) return fail(`parse:${parsed.reason}:${parsed.detail}`);
+
+  if (!parsed.ok) {
+    return fail(`parse:${parsed.reason}:${parsed.detail}`);
+  }
+
   const ctx: Context = {
     db,
     deps,
@@ -356,6 +431,7 @@ export function recordDebrief(
     rejections,
     loadedRules: session.loadedRules.map((rule) => rule.path),
   };
+
   const { proposals, ...notes } = storeNotes(ctx, parsed.notes);
   finishDebrief(db, {
     id: input.id,
@@ -367,5 +443,6 @@ export function recordDebrief(
     rejected: rejections.counts,
     answer: input.text,
   });
+
   return { id: input.id, status: "recorded", failure: null, notes, proposals, rejected: rejections.counts };
 }

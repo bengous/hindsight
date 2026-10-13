@@ -11,6 +11,7 @@ export type Paths = {
 };
 
 const DIR_MODE = 0o700;
+
 export const FILE_MODE = 0o600;
 
 export function hindsightPaths(env: Readonly<Record<string, string | undefined>> = process.env): Paths {
@@ -18,6 +19,7 @@ export function hindsightPaths(env: Readonly<Record<string, string | undefined>>
   const stateBase = env["XDG_STATE_HOME"] ?? join(home, ".local", "state");
   const configBase = env["XDG_CONFIG_HOME"] ?? join(home, ".config");
   const stateRoot = join(stateBase, "hindsight");
+
   return {
     stateRoot,
     dbPath: join(stateRoot, "hindsight.sqlite"),
@@ -28,6 +30,9 @@ export function hindsightPaths(env: Readonly<Record<string, string | undefined>>
 }
 
 export function ensurePrivateDir(path: string): void {
-  if (!existsSync(path)) mkdirSync(path, { recursive: true, mode: DIR_MODE });
+  if (!existsSync(path)) {
+    mkdirSync(path, { recursive: true, mode: DIR_MODE });
+  }
+
   chmodSync(path, DIR_MODE);
 }

@@ -1,8 +1,11 @@
 import type { On } from "claude-code";
+
 import { describe, expect, mock, test } from "claude-code/testing";
 
 const SESSION = { cwd: "/repo", surface: "terminal", isInteractive: true } as const;
+
 const RUN = { origin: { kind: "composer" }, presentation: { isFullscreen: true, columns: 160 } } as const;
+
 const PANE_PROPS = {
   title: "hindsight · Review",
   isFocused: true,
@@ -66,10 +69,12 @@ function build(on: On, items: readonly unknown[]): World {
   on("ui.log", () => ({ value: undefined }));
   on("ui.toast", (_, e) => {
     world.toasts.push(e.text);
+
     return { value: undefined };
   });
   on("ui.open", (_, e) => {
     world.opened.push(e);
+
     return { value: { isPlaced: true } };
   });
   on("process.run", (_, e) => {
@@ -78,10 +83,21 @@ function build(on: On, items: readonly unknown[]): World {
       .filter((arg) => arg !== "--json")
       .slice(0, 2)
       .join(" ");
+
     let answer: unknown = {};
-    if (command === "config") answer = {};
-    if (command === "status") answer = { pendingProposals: items.length, failures: [] };
-    if (command === "review list") answer = { items, pending: items.length, expired: 0, superseded: 0 };
+
+    if (command === "config") {
+      answer = {};
+    }
+
+    if (command === "status") {
+      answer = { pendingProposals: items.length, failures: [] };
+    }
+
+    if (command === "review list") {
+      answer = { items, pending: items.length, expired: 0, superseded: 0 };
+    }
+
     if (command === "review decide") {
       const body = JSON.parse(e.init?.stdin ?? "{}") as { decision: string };
       world.decisions.push(body);
@@ -89,7 +105,11 @@ function build(on: On, items: readonly unknown[]): World {
         kind: body.decision === "accept" ? "accepted" : body.decision === "reject" ? "rejected" : "handed_off",
       };
     }
-    if (command === "handoff prepare") answer = { id: "h1", instructions: "hindsight handoff: do it", proposals: 1 };
+
+    if (command === "handoff prepare") {
+      answer = { id: "h1", instructions: "hindsight handoff: do it", proposals: 1 };
+    }
+
     return {
       value: {
         exitCode: 0,
@@ -100,6 +120,7 @@ function build(on: On, items: readonly unknown[]): World {
       },
     };
   });
+
   return world;
 }
 
@@ -110,8 +131,10 @@ describe("the Review pane", () => {
     expect(await $.command.run({ command: "hindsight", args: "review", ...RUN })).toEqual({});
     await world.clock.settle();
     expect(world.opened).toHaveLength(1);
+
     for (const surface of ["terminal", "desktop"] as const) {
       const before = world.decisions.length;
+
       const ui = await $.ui.mount({
         plugin: "hindsight",
         surface,
@@ -119,6 +142,7 @@ describe("the Review pane", () => {
         props: PANE_PROPS,
         requestId: "hindsight-review",
       });
+
       expect(await ui.find({ type: "Text", text: /AGENTS\.md/ })).toBeDefined();
       expect(await ui.find({ type: "Code" })).toBeDefined();
       expect(await ui.find({ type: "Button", text: /Accepter/ })).toBeDefined();
@@ -144,6 +168,7 @@ describe("the Review pane", () => {
     await $.session.start(SESSION);
     await $.command.run({ command: "hindsight", args: "review", ...RUN });
     await world.clock.settle();
+
     const ui = await $.ui.mount({
       plugin: "hindsight",
       surface: "terminal",
@@ -151,6 +176,7 @@ describe("the Review pane", () => {
       props: PANE_PROPS,
       requestId: "hindsight-review",
     });
+
     await ui.press({ key: "edit" });
     await ui.input({ key: "draft-0", text: "- Keep commits small.⏎- Add packages with pnpm.", kind: "change" });
     await ui.press({ key: "accept-edited" });
@@ -162,6 +188,7 @@ describe("the Review pane", () => {
     await ui.unmount();
     await $.command.run({ command: "hindsight", args: "review", ...RUN });
     await world.clock.settle();
+
     const again = await $.ui.mount({
       plugin: "hindsight",
       surface: "terminal",
@@ -169,6 +196,7 @@ describe("the Review pane", () => {
       props: PANE_PROPS,
       requestId: "hindsight-review",
     });
+
     await again.press({ key: "accept" });
     expect(world.decisions.at(-1)).toEqual({ id: "p-edit", decision: "accept", edits: null });
   });
@@ -178,6 +206,7 @@ describe("the Review pane", () => {
     const filled: string[] = [];
     on("prompt.fill", (_, e) => {
       filled.push(e.text);
+
       return { isFilled: true };
     });
     await $.session.start(SESSION);

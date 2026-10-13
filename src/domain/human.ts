@@ -18,14 +18,22 @@ export type MarkerContext = {
 };
 
 const SYSTEM_REMINDER = /<system-reminder>[\s\S]*?<\/system-reminder>/g;
+
 const PASTED_CONTENT = /<pasted_content(?: id="[^"]*")?>([\s\S]*?)<\/pasted_content(?: id="[^"]*")?>/g;
+
 const FORM_ROUND_HEADER =
   /^[^\S\n]*(?:[^:\n]{1,60},[^\S\n]*)?(?:round|tour)[^\S\n]+\d+[^\S\n]*\n(?=[^\S\n]*[^:\n]{1,40}[^\S\n]:[^\S\n])/gim;
+
 const MARKDOWN_LINE = /^\s*(#|[-*>|+]\s|\d+[.)]\s|```|\{|<)/m;
+
 const FIRST_PERSON_FR = /\b(je|j'|moi|mon|ma|mes)\b/;
+
 const DICTATION_PROBE = 600;
+
 const DICTATION_MIN_LENGTH = 150;
+
 const PATH_OR_URL = /(?:^|[\s(])(?:~\/|\$HOME|[\w.-]+\/[\w.-]+\/)|:\/\//;
+
 const TERMINAL_GLYPH = /[❯●⏺]/;
 
 /**
@@ -117,6 +125,7 @@ const matchesAny = (patterns: readonly RegExp[], text: string): boolean => patte
 export function markersFor(text: string, context: MarkerContext): readonly Marker[] {
   const folded = foldText(text);
   const strong = matchesAny(CORRECTION_STRONG, folded);
+
   const flags: Record<Marker, boolean> = {
     interrupt_followup: context.afterInterrupt,
     user_rejected: context.rejectedTools.length > 0,
@@ -128,15 +137,21 @@ export function markersFor(text: string, context: MarkerContext): readonly Marke
     frustration: matchesAny(FRUSTRATION, folded),
     standing_instruction: matchesAny(STANDING_INSTRUCTION, folded),
   };
+
   return MARKER_ORDER.filter((marker) => flags[marker]);
 }
 
 const SLASH_COMMAND_NAME = /<command-name>([\s\S]*?)<\/command-name>/;
+
 const SLASH_COMMAND_ARGS = /<command-args>([\s\S]*?)<\/command-args>/;
 
 /** A slash command's name and arguments when `text` is one; null for plain text. */
 export function slashCommand(text: string): { readonly name: string; readonly args: string } | null {
   const name = SLASH_COMMAND_NAME.exec(text)?.[1]?.trim();
-  if (name === undefined) return null;
+
+  if (name === undefined) {
+    return null;
+  }
+
   return { name, args: SLASH_COMMAND_ARGS.exec(text)?.[1]?.trim() ?? "" };
 }

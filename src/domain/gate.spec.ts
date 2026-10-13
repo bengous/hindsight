@@ -1,7 +1,11 @@
+import type { ToolUse } from "./facts.ts";
+import type { GateState } from "./gate.ts";
+
 import { describe, expect, test } from "bun:test";
+
 import { defaultConfig } from "./config.ts";
-import { addHumanText, addToolUses, emptyFacts, markInterrupted, type ToolUse } from "./facts.ts";
-import { classifierText, cooldownMs, gateBrief, gatePasses, gateSignals, gateSkip, type GateState } from "./gate.ts";
+import { addHumanText, addToolUses, emptyFacts, markInterrupted } from "./facts.ts";
+import { classifierText, cooldownMs, gateBrief, gatePasses, gateSignals, gateSkip } from "./gate.ts";
 
 const use = (tool: string, extra: Partial<ToolUse> = {}): ToolUse => ({
   tool,
@@ -13,6 +17,7 @@ const use = (tool: string, extra: Partial<ToolUse> = {}): ToolUse => ({
 });
 
 const read = (path: string): ToolUse => use("Read", { path });
+
 const edit = (path: string): ToolUse => use("Edit", { path });
 
 const open: GateState = {
@@ -52,6 +57,7 @@ describe("gateSignals", () => {
       edit("/p/.claude/rules/tests.md"),
       use("Bash", { command: "git commit -m x" }),
     ]);
+
     const { signals, score } = gateSignals(facts);
     expect(signals.map((s) => s.name)).toEqual(["tool_refused", "rule_file_edit", "git_commit"]);
     expect(score).toBe(2.5);
@@ -65,6 +71,7 @@ describe("gateSignals", () => {
       use("Bash", { command: "bun test", isError: true }),
       use("Bash", { command: "bun test", isError: true }),
     ]);
+
     expect(gateSignals(facts).score).toBe(1);
   });
 
@@ -75,8 +82,8 @@ describe("gateSignals", () => {
   });
 
   test("a human text is cut at 4000 characters", () => {
-    const facts = addHumanText(emptyFacts, "x".repeat(5_000));
-    expect(facts.humanTexts[0]?.text.length).toBe(4_000);
+    const facts = addHumanText(emptyFacts, "x".repeat(5000));
+    expect(facts.humanTexts[0]?.text.length).toBe(4000);
   });
 });
 
@@ -106,14 +113,17 @@ describe("gateSkip", () => {
     let now = open.now;
     let debriefs = 0;
     let last: number | null = null;
+
     for (let turn = 0; turn < 20; turn += 1) {
       now += 30_000;
       const state = { ...open, now, lastDebriefAt: last, debriefsInSession: debriefs };
+
       if (gateSkip(state, facts, defaultConfig) === null) {
         debriefs += 1;
         last = now;
       }
     }
+
     expect(debriefs).toBeLessThanOrEqual(4);
   });
 

@@ -1,11 +1,15 @@
 import type { HindsightConfig } from "../domain/config.ts";
+import type { ToolUse } from "../domain/facts.ts";
+import type { GateState } from "../domain/gate.ts";
 import type { Host } from "./host.ts";
+import type { SessionState } from "./state.ts";
 import type { SessionMessage, ToolUseSummary } from "claude-code";
-import { addToolUses, isRefusalText, markInterrupted, type ToolUse } from "../domain/facts.ts";
-import { classifierText, gateBrief, gatePasses, gateSignals, gateSkip, type GateState } from "../domain/gate.ts";
+
+import { addToolUses, isRefusalText, markInterrupted } from "../domain/facts.ts";
+import { classifierText, gateBrief, gatePasses, gateSignals, gateSkip } from "../domain/gate.ts";
 import { cliGateLog } from "./cli-client.ts";
 import { debriefToast, runDebrief } from "./debrief.ts";
-import { countDebriefToday, debriefsToday, factsSince, readState, writeState, type SessionState } from "./state.ts";
+import { countDebriefToday, debriefsToday, factsSince, readState, writeState } from "./state.ts";
 
 export type TurnEnd = {
   readonly turnId: string;
@@ -16,11 +20,13 @@ export type TurnEnd = {
 
 function inputString(input: Record<string, unknown>, key: string): string | null {
   const value = input[key];
+
   return typeof value === "string" ? value : null;
 }
 
 export function toToolUse(use: ToolUseSummary): ToolUse {
   const isError = use.isError === true;
+
   return {
     tool: use.tool,
     path: inputString(use.input, "file_path") ?? inputString(use.input, "notebook_path"),
@@ -33,13 +39,16 @@ export function toToolUse(use: ToolUseSummary): ToolUse {
 /** The tool uses of the last turn: every assistant row after the last human prompt. */
 export function lastTurnTools(messages: readonly SessionMessage[]): readonly ToolUse[] {
   let start = 0;
+
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
+
     if (message?.role === "user" && message.text.trim() !== "" && (message.toolResults ?? []).length === 0) {
       start = index;
       break;
     }
   }
+
   return messages
     .slice(start)
     .filter((message) => message.role === "assistant")
@@ -59,6 +68,7 @@ export async function afterTurn(host: Host, config: HindsightConfig, turn: TurnE
   const withTools = { ...state, facts: addToolUses(state.facts, tools) };
   const facts = turn.isAborted ? markInterrupted(withTools.facts) : withTools.facts;
   const repoRoot = await host.repoRoot();
+
   const gateState: GateState = {
     isInteractive: turn.isInteractive,
     agentId: turn.agentId,
@@ -70,9 +80,11 @@ export async function afterTurn(host: Host, config: HindsightConfig, turn: TurnE
     debriefsToday: await debriefsToday(host, now),
     now,
   };
+
   const skip = gateSkip(gateState, facts, config);
   const signals = gateSignals(facts);
   await writeState(host, sessionId, { ...withTools, facts }, now);
+
   if (skip !== null) {
     cliGateLog(host, {
       sessionId,
@@ -82,8 +94,10 @@ export async function afterTurn(host: Host, config: HindsightConfig, turn: TurnE
       score: signals.score,
       signals: signals.signals,
     });
+
     return { kind: "skip", reason: skip };
   }
+
   if (!gatePasses(signals, config)) {
     cliGateLog(host, {
       sessionId,
@@ -93,8 +107,10 @@ export async function afterTurn(host: Host, config: HindsightConfig, turn: TurnE
       score: signals.score,
       signals: signals.signals,
     });
+
     return { kind: "skip", reason: "below-threshold" };
   }
+
   return { kind: "pass", brief: gateBrief(signals, facts), score: signals.score };
 }
 
@@ -115,23 +131,31 @@ export async function classifyThenDebrief(
   const sessionId = await host.sessionId();
   const startedAt = await host.now();
   const state = await readState(host, sessionId, startedAt);
+
   if (state.forkRunning) {
     cliGateLog(host, { sessionId, turnId, decision: "skip", reason: "fork-running", score, signals: [] });
+
     return;
   }
+
   await writeState(host, sessionId, { ...state, forkRunning: true, forkStartedAt: startedAt }, startedAt);
-  const release = () =>
+
+  const release = async () =>
     setFork(host, sessionId, (current) => ({ ...current, forkRunning: false, forkStartedAt: null }));
+
   if (!force) {
     let label: string | undefined;
+
     try {
       label = await host.classify(classifierText(brief, state.facts), ["debrief", "skip"], config.gate.classifierModel);
     } catch (error) {
       cliGateLog(host, { sessionId, turnId, decision: "skip", reason: "classifier-error", score, signals: [] });
       host.log(`classifier failed: ${error instanceof Error ? error.message : String(error)}`);
       await release();
+
       return;
     }
+
     if (label !== "debrief") {
       cliGateLog(host, {
         sessionId,
@@ -142,10 +166,13 @@ export async function classifyThenDebrief(
         signals: [],
       });
       await release();
+
       return;
     }
   }
+
   cliGateLog(host, { sessionId, turnId, decision: force ? "forced" : "debrief", reason: null, score, signals: [] });
+
   try {
     const run = await runDebrief(host, sessionId, await host.repoRoot(), brief);
     const at = await host.now();
@@ -161,9 +188,16 @@ export async function classifyThenDebrief(
             debriefsInSession: current.debriefsInSession + 1,
           },
     );
-    if (run.kind !== "aborted") await countDebriefToday(host, at);
+
+    if (run.kind !== "aborted") {
+      await countDebriefToday(host, at);
+    }
+
     const toast = debriefToast(run);
-    if (toast !== null) host.toast(toast);
+
+    if (toast !== null) {
+      host.toast(toast);
+    }
   } catch (error) {
     await release();
     host.toast(`Debrief impossible : ${error instanceof Error ? error.message : String(error)}`);

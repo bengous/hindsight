@@ -18,6 +18,7 @@ export type ModelAnswer = {
   readonly durationMs: number;
 };
 
+// oxlint-disable-next-line unicorn/throw-new-error -- Schema.TaggedError is a class factory, not an Error constructor; its fix inserts a `new` that breaks the class.
 export class ModelError extends Schema.TaggedError<ModelError>()("ModelError", {
   kind: Schema.Literals(["timeout", "exit", "unparsable-stdout", "no-result", "result-error", "missing-output"]),
   label: Schema.String,
@@ -59,20 +60,30 @@ export function claudeArgs(request: ModelRequest): string[] {
 /** The child must not believe it runs inside a Claude Code session. */
 export function childEnv(env: Readonly<Record<string, string | undefined>>): Record<string, string> {
   const clean: Record<string, string> = {};
+
   for (const [key, value] of Object.entries(env)) {
-    if (value !== undefined && key !== "CLAUDECODE") clean[key] = value;
+    if (value !== undefined && key !== "CLAUDECODE") {
+      clean[key] = value;
+    }
   }
+
   return clean;
 }
 
 type Json = Record<string, unknown>;
+
 const isJson = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
-const num = (record: Json, key: string): number => (typeof record[key] === "number" ? (record[key] as number) : 0);
+
+const num = (record: Json, key: string): number => (typeof record[key] === "number" ? record[key] : 0);
 
 /** The CLI prints the result object or, under `--safe-mode`, an array of every message. */
 export function findResultMessage(parsed: unknown): Json | null {
   const isResult = (value: unknown): value is Json => isJson(value) && value["type"] === "result";
-  if (isResult(parsed)) return parsed;
+
+  if (isResult(parsed)) {
+    return parsed;
+  }
+
   return Array.isArray(parsed) ? (parsed.findLast(isResult) ?? null) : null;
 }
 
@@ -88,9 +99,13 @@ const tail = (text: string): string => text.slice(-400).trim();
 
 export function parseClaudeOutput(request: ModelRequest, spawned: Spawned): ModelAnswer | ModelError {
   const { label } = request;
-  if (spawned.timedOut)
+
+  if (spawned.timedOut) {
     return new ModelError({ kind: "timeout", label, detail: `killed after ${request.timeoutMs} ms`, costUsd: 0 });
+  }
+
   let parsed: unknown;
+
   try {
     parsed = JSON.parse(spawned.stdout);
   } catch {
@@ -101,13 +116,19 @@ export function parseClaudeOutput(request: ModelRequest, spawned: Spawned): Mode
       costUsd: 0,
     });
   }
+
   const result = findResultMessage(parsed);
-  if (result === null)
+
+  if (result === null) {
     return new ModelError({ kind: "no-result", label, detail: "no result message in stdout", costUsd: 0 });
+  }
+
   const usage = isJson(result["usage"]) ? result["usage"] : {};
   const costUsd = num(result, "total_cost_usd");
+
   if (result["is_error"] === true || result["subtype"] !== "success" || spawned.exitCode !== 0) {
     const detail = typeof result["result"] === "string" ? tail(result["result"]) : "";
+
     return new ModelError({
       kind: "result-error",
       label,
@@ -115,9 +136,11 @@ export function parseClaudeOutput(request: ModelRequest, spawned: Spawned): Mode
       costUsd,
     });
   }
+
   if (!("structured_output" in result) || result["structured_output"] === null) {
     return new ModelError({ kind: "missing-output", label, detail: "success without structured_output", costUsd });
   }
+
   return {
     output: result["structured_output"],
     costUsd,
@@ -130,6 +153,7 @@ export function parseClaudeOutput(request: ModelRequest, spawned: Spawned): Mode
 
 async function spawnClaude(request: ModelRequest): Promise<Spawned> {
   const startedAt = performance.now();
+
   const proc = Bun.spawn(["claude", ...claudeArgs(request)], {
     cwd: tmpdir(),
     env: childEnv(process.env),
@@ -139,11 +163,13 @@ async function spawnClaude(request: ModelRequest): Promise<Spawned> {
     timeout: request.timeoutMs,
     killSignal: "SIGKILL",
   });
+
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
+
   return {
     exitCode: proc.signalCode === null ? exitCode : null,
     timedOut: proc.signalCode !== null,
@@ -157,7 +183,7 @@ export const liveRunner = ClaudeRunner.of({
   run: (request) =>
     Effect.flatMap(
       Effect.tryPromise({
-        try: () => spawnClaude(request),
+        try: async () => spawnClaude(request),
         catch: (cause) =>
           new ModelError({
             kind: "exit",
@@ -168,25 +194,32 @@ export const liveRunner = ClaudeRunner.of({
       }),
       (spawned) => {
         const parsed = parseClaudeOutput(request, spawned);
+
         return parsed instanceof ModelError ? Effect.fail(parsed) : Effect.succeed(parsed);
       },
     ),
 });
 
 /** A runner for specs: answers each call from `answers` in order, or fails when the script runs out. */
-export function scriptedRunner(answers: readonly (unknown | ModelError)[], costUsd = 0.1): ClaudeRunner["Service"] {
+export function scriptedRunner(answers: ReadonlyArray<unknown | ModelError>, costUsd = 0.1): ClaudeRunner["Service"] {
   let index = 0;
+
   return {
     run: (request) => {
       const answer = answers[index];
       index += 1;
+
       if (answer === undefined) {
         return Effect.fail(
           new ModelError({ kind: "exit", label: request.label, detail: "script exhausted", costUsd: 0 }),
         );
       }
-      if (answer instanceof ModelError) return Effect.fail(answer);
-      return Effect.succeed({ output: answer, costUsd, inputTokens: 1_000, outputTokens: 100, durationMs: 1 });
+
+      if (answer instanceof ModelError) {
+        return Effect.fail(answer);
+      }
+
+      return Effect.succeed({ output: answer, costUsd, inputTokens: 1000, outputTokens: 100, durationMs: 1 });
     },
   };
 }

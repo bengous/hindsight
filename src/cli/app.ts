@@ -1,21 +1,33 @@
+import type { HindsightConfig } from "../domain/config.ts";
+import type { Store } from "../store/db.ts";
+import type { Paths } from "../store/paths.ts";
+
 import { Context, Effect, Layer } from "effect";
 import { existsSync, readFileSync } from "node:fs";
-import { readConfig, type HindsightConfig } from "../domain/config.ts";
-import { Store, storeLayer } from "../store/db.ts";
-import { hindsightPaths, type Paths } from "../store/paths.ts";
+
+import { readConfig } from "../domain/config.ts";
+import { storeLayer } from "../store/db.ts";
+import { hindsightPaths } from "../store/paths.ts";
 
 export class AppPaths extends Context.Service<AppPaths, Paths>()("hindsight/cli/AppPaths") {}
 
 export class AppConfig extends Context.Service<AppConfig, HindsightConfig>()("hindsight/cli/AppConfig") {}
 
 export function loadConfig(configPath: string): HindsightConfig {
-  if (!existsSync(configPath)) return readConfig(undefined);
+  if (!existsSync(configPath)) {
+    return readConfig(undefined);
+  }
+
   let parsed: unknown;
+
   try {
     parsed = JSON.parse(readFileSync(configPath, "utf8"));
   } catch (error) {
-    throw new Error(`${configPath}: invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`${configPath}: invalid JSON: ${error instanceof Error ? error.message : String(error)}`, {
+      cause: error,
+    });
   }
+
   return readConfig(parsed);
 }
 
@@ -38,6 +50,6 @@ export const printJson = (value: unknown): Effect.Effect<void> =>
     process.stdout.write(`${JSON.stringify(value)}\n`);
   });
 
-export const readStdin: Effect.Effect<string> = Effect.promise(() => Bun.stdin.text());
+export const readStdin: Effect.Effect<string> = Effect.promise(async () => Bun.stdin.text());
 
 export const nowIso = (): string => new Date().toISOString();

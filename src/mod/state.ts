@@ -1,5 +1,7 @@
+import type { TurnFacts } from "../domain/facts.ts";
 import type { Host } from "./host.ts";
-import { emptyFacts, type TurnFacts } from "../domain/facts.ts";
+
+import { emptyFacts } from "../domain/facts.ts";
 
 /** What one session accumulates between Debriefs, kept in `$.store` so that a reload or /clear loses nothing. */
 export type SessionState = {
@@ -12,8 +14,11 @@ export type SessionState = {
 };
 
 const SESSION_PREFIX = "session:";
+
 const DAY_PREFIX = "day:";
+
 const STATE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 const DAY_TTL_MS = 2 * 24 * 60 * 60 * 1000;
 
 export const freshState = (now: number): SessionState => ({
@@ -33,11 +38,17 @@ export const FORK_STALE_MS = 15 * 60 * 1000;
 /** A fork lock older than fifteen minutes belongs to a fork the engine lost: it no longer holds. */
 export async function readState(host: Host, sessionId: string, now: number): Promise<SessionState> {
   const stored = await host.storeGet(`${SESSION_PREFIX}${sessionId}`);
-  if (!isState(stored)) return freshState(now);
+
+  if (!isState(stored)) {
+    return freshState(now);
+  }
+
   const startedAt = typeof stored.forkStartedAt === "number" ? stored.forkStartedAt : null;
+
   if (stored.forkRunning && (startedAt === null || now - startedAt > FORK_STALE_MS)) {
     return { ...stored, forkRunning: false, forkStartedAt: null };
   }
+
   return stored;
 }
 
@@ -65,6 +76,7 @@ export function utcDayOf(now: number): string {
 
 export async function debriefsToday(host: Host, now: number): Promise<number> {
   const count = await host.storeGet(`${DAY_PREFIX}${utcDayOf(now)}`);
+
   return typeof count === "number" ? count : 0;
 }
 
@@ -75,20 +87,24 @@ export async function countDebriefToday(host: Host, now: number): Promise<void> 
 /** Drops session states older than seven days and day counters older than two. */
 export async function pruneStore(host: Host, now: number): Promise<number> {
   let dropped = 0;
+
   for (const key of await host.storeKeys()) {
     if (key.startsWith(SESSION_PREFIX)) {
       const value = await host.storeGet(key);
+
       if (!isState(value) || now - value.updatedAt > STATE_TTL_MS) {
         await host.storeDelete(key);
         dropped += 1;
       }
     } else if (key.startsWith(DAY_PREFIX)) {
       const day = new Date(`${key.slice(DAY_PREFIX.length)}T00:00:00.000Z`).getTime();
+
       if (!Number.isFinite(day) || now - day > DAY_TTL_MS) {
         await host.storeDelete(key);
         dropped += 1;
       }
     }
   }
+
   return dropped;
 }

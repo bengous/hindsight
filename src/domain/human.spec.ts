@@ -1,5 +1,8 @@
+import type { Marker, MarkerContext } from "./human.ts";
+
 import { describe, expect, test } from "bun:test";
-import { cleanHumanText, isDictatedPaste, markersFor, slashCommand, type Marker, type MarkerContext } from "./human.ts";
+
+import { cleanHumanText, isDictatedPaste, markersFor, slashCommand } from "./human.ts";
 import { foldText } from "./text.ts";
 
 const dictation =
@@ -53,7 +56,7 @@ describe("cleanHumanText", () => {
 
 const plain: MarkerContext = { isFirstPrompt: false, afterInterrupt: false, rejectedTools: [] };
 
-const lexical: readonly (readonly [string, Marker])[] = [
+const lexical: ReadonlyArray<readonly [string, Marker]> = [
   ["Je t'ai déjà dit de lancer les tests", "correction_strong"],
   ["pourquoi tu as supprimé ce fichier ?", "correction_strong"],
   ["Arrête de sur compliquer les choses", "correction_strong"],

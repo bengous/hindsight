@@ -1,22 +1,30 @@
+import type { StoreShape } from "../store/db.ts";
+import type { ProposalInsert } from "../store/queries.ts";
+
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
 import { tempRepo } from "../../fixtures/rules/repo.ts";
 import { defaultConfig } from "../domain/config.ts";
-import { makeStore, Store, type StoreShape } from "../store/db.ts";
-import { insertProposal, upsertMessage, type ProposalInsert } from "../store/queries.ts";
+import { Store, makeStore } from "../store/db.ts";
+import { insertProposal, upsertMessage } from "../store/queries.ts";
 import { decideProposal, listReview, prepareHandoff } from "./port.ts";
 
 const RULES = "# Rules\n- Keep functions small.\n- Name things plainly.\n";
+
 const repo = tempRepo({ "AGENTS.md": RULES });
+
 const AGENTS = join(repo.root, "AGENTS.md");
+
 const NOW = "2026-10-13T12:00:00.000Z";
 
 afterAll(() => repo.cleanup());
 
 let store: StoreShape;
-const provide = <A, E>(effect: Effect.Effect<A, E, Store>) =>
+
+const provide = async <A, E>(effect: Effect.Effect<A, E, Store>) =>
   Effect.runPromise(effect.pipe(Effect.provide(Layer.succeed(Store, store))));
 
 const proposal = (id: string, overrides: Partial<ProposalInsert> = {}): ProposalInsert => ({
@@ -120,9 +128,11 @@ describe("listReview", () => {
     const result = await provide(listReview(defaultConfig));
     expect(result).toMatchObject({ expired: 1, superseded: 1 });
     expect(result.items.map((item) => item.id)).toEqual(["newer"]);
+
     const states = await Effect.runPromise(
       store.all<{ id: string; state: string }>("SELECT id, state FROM proposals ORDER BY id"),
     );
+
     expect(states).toEqual([
       { id: "gone", state: "expired" },
       { id: "newer", state: "pending" },
@@ -138,11 +148,13 @@ describe("decideProposal", () => {
     expect(outcome.kind).toBe("accepted");
     expect(readFileSync(AGENTS, "utf8")).toContain("- Name things after the domain.");
     expect(repo.git("log", "-1", "--format=%B")).not.toContain("nomme d'après");
+
     const decisions = await Effect.runPromise(
       store.all<{ decision: string; commit_sha: string | null; sessions_at_decision: number }>(
         "SELECT decision, commit_sha, sessions_at_decision FROM decisions",
       ),
     );
+
     expect(decisions).toEqual([
       { decision: "accepted", commit_sha: repo.git("rev-parse", "HEAD").trim(), sessions_at_decision: 3 },
     ]);
@@ -184,9 +196,11 @@ describe("decideProposal", () => {
     const edits = [{ oldText: "- Name things plainly.", newText: "- Name things after the domain, in English." }];
     expect((await provide(decideProposal("p2", { kind: "accept", edits }, NOW))).kind).toBe("accepted");
     expect(readFileSync(AGENTS, "utf8")).toContain("in English.");
+
     const [row] = await Effect.runPromise(
       store.all<{ edited_change_json: string }>("SELECT edited_change_json FROM decisions"),
     );
+
     expect(JSON.parse(row?.edited_change_json ?? "{}")).toEqual({ kind: "edit", edits });
   });
 
@@ -220,9 +234,11 @@ describe("decideProposal", () => {
       kind: "refused",
       reason: expect.stringContaining("old-text-missing"),
     });
+
     const states = await Effect.runPromise(
       store.all<{ id: string; state: string }>("SELECT id, state FROM proposals ORDER BY id"),
     );
+
     expect(states).toEqual([
       { id: "p3", state: "rejected" },
       { id: "p4", state: "pending" },

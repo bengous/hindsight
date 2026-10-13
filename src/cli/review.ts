@@ -1,5 +1,6 @@
 import { Effect, Schema } from "effect";
 import { Command } from "effect/cli";
+
 import { decideProposal, listReview, prepareHandoff } from "../review/port.ts";
 import { AppConfig, printJson, readStdin } from "./app.ts";
 
@@ -29,12 +30,14 @@ const decide = Command.make(
   {},
   Effect.fn(function* () {
     const input = yield* Schema.decodeUnknownEffect(DecideStdin)(JSON.parse(yield* readStdin));
+
     const decision =
       input.decision === "accept"
         ? ({ kind: "accept", edits: input.edits } as const)
         : input.decision === "reject"
           ? ({ kind: "reject", reason: input.reason } as const)
           : ({ kind: "handoff" } as const);
+
     yield* printJson(yield* decideProposal(input.id, decision));
   }),
 ).pipe(Command.withDescription("Takes one Decision read on stdin: accept, reject with a reason, or handoff"));

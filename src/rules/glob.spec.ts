@@ -1,6 +1,8 @@
 import type { RuleFile } from "./types.ts";
+
 import { afterAll, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
+
 import { tempDir, writeTree } from "../../fixtures/rules/repo.ts";
 import { expandBraces, globMatcher, matchesOnDisk, ruleAppliesTo } from "./glob.ts";
 
@@ -35,7 +37,7 @@ describe("matchesOnDisk", () => {
 
   test("reads [lang] as a bracket expression, as Claude Code does", () => {
     expect(matchesOnDisk(dir, "pages/[lang]/phone/**")).toBe(false);
-    expect(matchesOnDisk(dir, "pages/\\[lang]/phone/**")).toBe(true);
+    expect(matchesOnDisk(dir, String.raw`pages/\[lang]/phone/**`)).toBe(true);
   });
 });
 

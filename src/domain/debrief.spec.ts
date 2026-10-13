@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { debriefPrompt, parseDebrief } from "./debrief.ts";
 
 const valid = {
@@ -22,7 +23,11 @@ describe("debriefPrompt", () => {
   test("carries the brief, the five questions and the answer shape", () => {
     const prompt = debriefPrompt("Signals: human_marker");
     expect(prompt).toContain("Signals: human_marker");
-    for (const n of ["1.", "2.", "3.", "4.", "5."]) expect(prompt).toContain(`\n${n} `);
+
+    for (const n of ["1.", "2.", "3.", "4.", "5."]) {
+      expect(prompt).toContain(`\n${n} `);
+    }
+
     expect(prompt).toContain("Call no tool");
     expect(prompt).toContain('"staleRules"');
     expect(prompt).toContain("in English");
@@ -34,6 +39,7 @@ describe("parseDebrief", () => {
   test("reads a fenced answer", () => {
     const result = parseDebrief(`Here it is:\n\`\`\`json\n${JSON.stringify(valid)}\n\`\`\``);
     expect(result.ok).toBe(true);
+
     if (result.ok) {
       expect(result.notes.steers[0]?.habit).toBe(true);
       expect(result.notes.observations[0]?.question).toBe(3);

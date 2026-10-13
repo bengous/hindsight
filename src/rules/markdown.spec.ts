@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+
 import { bulletAt, codeSpans, frontmatterPaths, importTargets, ruleBullets } from "./markdown.ts";
 
 describe("frontmatterPaths", () => {

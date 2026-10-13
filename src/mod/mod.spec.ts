@@ -1,6 +1,8 @@
 import type { Host } from "./host.ts";
 import type { SessionMessage } from "claude-code";
+
 import { describe, expect, test } from "bun:test";
+
 import { CliError, runCli } from "./cli-client.ts";
 import { cacheShareOf } from "./debrief.ts";
 import { lastTurnTools } from "./gate.ts";
@@ -35,10 +37,12 @@ describe("lastTurnTools", () => {
       ]),
       message("user", "", []),
     ];
+
     const last = {
       ...messages[4],
       toolResults: [{ tool_use_id: "3", text: "exit 1", isError: true, result: null }],
     } as SessionMessage;
+
     expect(lastTurnTools([...messages.slice(0, 4), last])).toEqual([
       { tool: "Bash", path: null, command: "bun test -u", isError: true, isRefused: true },
       { tool: "Bash", path: null, command: "bun test", isError: true, isRefused: false },
@@ -53,7 +57,7 @@ describe("cacheShareOf", () => {
         isAnswered: true,
         text: "",
         usage: {
-          input_tokens: 1_000,
+          input_tokens: 1000,
           output_tokens: 1,
           cache_read_input_tokens: 99_000,
           cache_creation_input_tokens: 0,
@@ -99,13 +103,13 @@ function fakeHost(
     },
     storeKeys: async () => [...store.keys()],
     run: async () => ({ ...answer, stderr: answer.stderr ?? "", isStdoutTruncated: false, isStderrTruncated: false }),
-    classify: async () => undefined,
+    classify: async () => {},
     fork: async () => ({ isAnswered: false, reason: "nothing-to-fork" }),
-    after: () => undefined,
-    status: () => undefined,
-    toast: () => undefined,
-    log: () => undefined,
-    fill: async () => undefined,
+    after: () => {},
+    status: () => {},
+    toast: () => {},
+    log: () => {},
+    fill: async () => {},
   };
 }
 
@@ -124,6 +128,7 @@ describe("readState and factsSince", () => {
     const now = Date.UTC(2026, 9, 13, 12);
     const stale = { ...freshState(now), forkRunning: true, forkStartedAt: now - 16 * 60_000 };
     const live = { ...freshState(now), forkRunning: true, forkStartedAt: now - 60_000 };
+
     const host = fakeHost(
       { exitCode: 0, stdout: "{}" },
       new Map<string, unknown>([
@@ -131,6 +136,7 @@ describe("readState and factsSince", () => {
         ["session:b", live],
       ]),
     );
+
     expect((await readState(host, "a", now)).forkRunning).toBe(false);
     expect((await readState(host, "b", now)).forkRunning).toBe(true);
     const before = freshState(now).facts;
@@ -147,6 +153,7 @@ describe("readState and factsSince", () => {
 describe("pruneStore", () => {
   test("drops session states older than seven days and stale day counters", async () => {
     const now = Date.UTC(2026, 9, 13);
+
     const store = new Map<string, unknown>([
       ["session:old", { ...freshState(now), updatedAt: now - 8 * 86_400_000 }],
       ["session:new", { ...freshState(now), updatedAt: now - 3_600_000 }],
@@ -154,6 +161,7 @@ describe("pruneStore", () => {
       ["day:2026-10-01", 4],
       ["day:2026-10-13", 2],
     ]);
+
     const host = fakeHost({ exitCode: 0, stdout: "{}" }, store);
     expect(await pruneStore(host, now)).toBe(3);
     expect([...store.keys()].sort()).toEqual(["day:2026-10-13", "session:new"]);

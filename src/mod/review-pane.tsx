@@ -1,4 +1,5 @@
 import type { Elements } from "claude-code";
+
 import { toDraft, unifiedDiff } from "../domain/diff.ts";
 import { displayText } from "../domain/text.ts";
 
@@ -23,7 +24,7 @@ export type PaneItem = {
   readonly reasoningFr: string;
   readonly lessonEn: string;
   readonly change:
-    | { readonly kind: "edit"; readonly edits: readonly { readonly oldText: string; readonly newText: string }[] }
+    | { readonly kind: "edit"; readonly edits: ReadonlyArray<{ readonly oldText: string; readonly newText: string }> }
     | { readonly kind: "description"; readonly text: string };
   readonly evidence: readonly PaneEvidence[];
   readonly prevalence: { readonly sessions: number; readonly days: number; readonly repos: number };
@@ -45,7 +46,7 @@ export type ReviewState = {
 };
 
 export type ReviewActions = {
-  readonly accept: (edits: readonly { oldText: string; newText: string }[] | null) => void;
+  readonly accept: (edits: ReadonlyArray<{ oldText: string; newText: string }> | null) => void;
   readonly acceptEdited: () => void;
   readonly reject: (reason: string) => void;
   readonly handoff: () => void;
@@ -65,10 +66,14 @@ export const emptyReview: ReviewState = {
 };
 
 const TEXT_MAX = 600;
-const MESSAGE_MAX = 2_000;
+
+const MESSAGE_MAX = 2000;
 
 export function displayPath(path: string, repoRoot: string | null): string {
-  if (repoRoot !== null && path.startsWith(`${repoRoot}/`)) return path.slice(repoRoot.length + 1);
+  if (repoRoot !== null && path.startsWith(`${repoRoot}/`)) {
+    return path.slice(repoRoot.length + 1);
+  }
+
   return path;
 }
 
@@ -76,6 +81,7 @@ export function drawReview(el: PaneElements, state: ReviewState, actions: Review
   const { Box, Text, Button, Input, Code } = el;
   const width = Math.max(30, bodyColumns - 2);
   const item = state.items[state.index];
+
   if (item === undefined) {
     return (
       <Box flexDirection="column">
@@ -83,13 +89,17 @@ export function drawReview(el: PaneElements, state: ReviewState, actions: Review
       </Box>
     );
   }
+
   const isEdit = item.change.kind === "edit";
+
   const diff =
     item.change.kind === "edit" ? unifiedDiff(displayPath(item.targetPath, item.repoRoot), item.change.edits) : null;
+
   const prevalence =
     item.prevalence.sessions === 0
       ? "contrôle en code"
       : `${item.prevalence.sessions} session(s), ${item.prevalence.days} jour(s), ${item.prevalence.repos} dépôt(s)`;
+
   return (
     <Box flexDirection="column" width={width}>
       <Text bold>
@@ -102,10 +112,10 @@ export function drawReview(el: PaneElements, state: ReviewState, actions: Review
         {item.verdict ?? item.source} · {prevalence}
       </Text>
       <Text>{displayText(item.claimFr, TEXT_MAX)}</Text>
-      {diff !== null ? (
-        <Code source={diff} format="diff" path={displayPath(item.targetPath, item.repoRoot)} />
-      ) : (
+      {diff === null ? (
         <Text color="warning">{displayText(item.change.kind === "description" ? item.change.text : "", TEXT_MAX)}</Text>
+      ) : (
+        <Code source={diff} format="diff" path={displayPath(item.targetPath, item.repoRoot)} />
       )}
       <Text dimColor>{displayText(item.reasoningFr, TEXT_MAX)}</Text>
       <Text dimColor>Lesson: {displayText(item.lessonEn, TEXT_MAX)}</Text>

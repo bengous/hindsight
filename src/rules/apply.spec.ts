@@ -1,22 +1,34 @@
+import type { TempRepo } from "../../fixtures/rules/repo.ts";
+import type { ApplyRequest, TextEdit } from "./apply.ts";
+
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { tempDir, tempRepo, type TempRepo } from "../../fixtures/rules/repo.ts";
-import { applyChange, type ApplyRequest, type TextEdit } from "./apply.ts";
+
+import { tempDir, tempRepo } from "../../fixtures/rules/repo.ts";
+import { applyChange } from "./apply.ts";
 
 const RULES = "# Rules\n- Keep functions small.\n- Name things plainly.\n";
+
 const repos: TempRepo[] = [];
+
 const dirs: string[] = [];
 
 function fixture(): TempRepo {
   const repo = tempRepo({ "AGENTS.md": RULES, "src/app.ts": "export {};\n" });
   repos.push(repo);
+
   return repo;
 }
 
 afterEach(() => {
-  for (const repo of repos.splice(0)) repo.cleanup();
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  for (const repo of repos.splice(0)) {
+    repo.cleanup();
+  }
+
+  for (const dir of dirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 function request(repo: TempRepo, edits: readonly TextEdit[], overrides: Partial<ApplyRequest> = {}): ApplyRequest {
@@ -43,7 +55,11 @@ describe("applyChange in a checkout", () => {
     repo.git("add", "staged.txt");
     const result = await applyChange(request(repo, [rename]));
     expect(result.kind).toBe("committed");
-    if (result.kind !== "committed") return;
+
+    if (result.kind !== "committed") {
+      return;
+    }
+
     expect(result.commit).toBe(repo.git("rev-parse", "HEAD").trim());
     expect(repo.git("show", "--name-only", "--format=", "HEAD").trim()).toBe("AGENTS.md");
     expect(readFileSync(join(repo.root, "AGENTS.md"), "utf8")).toContain("- Name things after the domain.");
@@ -113,9 +129,11 @@ describe("applyChange in a checkout", () => {
 
   test("creates a new rule file, and refuses when it already exists", async () => {
     const repo = fixture();
+
     const create = request(repo, [{ oldText: "", newText: "- New.\n" }], {
       targetPath: join(repo.root, ".claude/rules/tests.md"),
     });
+
     expect(await applyChange(create)).toMatchObject({ kind: "committed" });
     expect(repo.git("show", "--name-only", "--format=", "HEAD").trim()).toBe(".claude/rules/tests.md");
     expect(await applyChange(create)).toMatchObject({ reason: "file-exists" });
@@ -128,7 +146,11 @@ describe("applyChange in a checkout", () => {
     chmodSync(hook, 0o755);
     const result = await applyChange(request(repo, [rename]));
     expect(result).toMatchObject({ kind: "refused", reason: "commit-rejected" });
-    if (result.kind === "refused") expect(result.detail).toContain("lint: rule file rejected");
+
+    if (result.kind === "refused") {
+      expect(result.detail).toContain("lint: rule file rejected");
+    }
+
     expect(readFileSync(join(repo.root, "AGENTS.md"), "utf8")).toBe(RULES);
     expect(repo.git("status", "--porcelain")).toBe("");
     const create = request(repo, [{ oldText: "", newText: "- New.\n" }], { targetPath: join(repo.root, "NEW.md") });

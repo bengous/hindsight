@@ -1,8 +1,11 @@
 import type { On, SessionMessage } from "claude-code";
+
 import { describe, expect, mock, test } from "claude-code/testing";
 
 const SESSION = { cwd: "/repo", surface: "terminal", isInteractive: true } as const;
+
 const DEBRIEF_ID = "d-1";
+
 const FORK_ANSWER =
   '```json\n{"steers":[{"quote":"non, pas de npm pour ça","lesson":"Install packages with pnpm.","habit":true}]}\n```';
 
@@ -10,7 +13,7 @@ type Call = { readonly argv: readonly string[]; readonly stdin: string | undefin
 
 type World = {
   readonly cli: Call[];
-  readonly statuses: (string | undefined)[];
+  readonly statuses: Array<string | undefined>;
   readonly toasts: string[];
   readonly classified: string[];
   readonly forked: string[];
@@ -23,14 +26,21 @@ type World = {
 
 function cliAnswer(world: World, argv: readonly string[]): unknown {
   const command = argv.slice(2).filter((arg) => arg !== "--json");
+
   switch (command.join(" ").split(" --")[0]) {
-    case "config":
+    case "config": {
       return { gate: { threshold: 1 } };
-    case "status":
+    }
+
+    case "status": {
       return { pendingProposals: world.pendingProposals, failures: [] };
-    case "debrief start":
+    }
+
+    case "debrief start": {
       return { id: DEBRIEF_ID };
-    case "debrief record":
+    }
+
+    case "debrief record": {
       return {
         status: "recorded",
         failure: null,
@@ -38,10 +48,15 @@ function cliAnswer(world: World, argv: readonly string[]): unknown {
         proposals: 0,
         rejected: {},
       };
-    case "gate log":
+    }
+
+    case "gate log": {
       return { ok: true };
-    default:
+    }
+
+    default: {
       return {};
+    }
   }
 }
 
@@ -58,6 +73,7 @@ function build(on: On): World {
     pendingProposals: 0,
     holdCli: null,
   };
+
   mock.store(on);
   on("session.start", (_, e) => ({ cwd: e.cwd }));
   on("session.id", () => ({ value: "s-test" }));
@@ -66,16 +82,22 @@ function build(on: On): World {
   on("command.register", (_, e) => ({ value: { command: e.name } }));
   on("ui.status", (_, e) => {
     world.statuses.push(e.text);
+
     return { value: undefined };
   });
   on("ui.toast", (_, e) => {
     world.toasts.push(e.text);
+
     return { value: undefined };
   });
   on("ui.log", () => ({ value: undefined }));
   on("process.run", async (_, e) => {
     world.cli.push({ argv: e.argv, stdin: e.init?.stdin });
-    if (world.holdCli !== null) await world.holdCli;
+
+    if (world.holdCli !== null) {
+      await world.holdCli;
+    }
+
     return {
       value: {
         exitCode: 0,
@@ -88,10 +110,12 @@ function build(on: On): World {
   });
   on("model.classify", (_, e) => {
     world.classified.push(e.text);
+
     return { value: world.classifyAnswer };
   });
   on("model.fork", (_, e) => {
     world.forked.push(e.prompt);
+
     return {
       value: {
         isAnswered: true,
@@ -107,6 +131,7 @@ function build(on: On): World {
   });
   on("prompt.submit", (_, e) => ({ text: e.text, isAborted: false, turnId: "t-1" }));
   on("turn.complete", () => ({ text: "" }));
+
   return world;
 }
 
@@ -131,12 +156,12 @@ describe("session.start", () => {
   test("registers /hindsight, then reads config and status without holding the hook", async ($, on) => {
     const world = build(on);
     world.pendingProposals = 2;
-    world.holdCli = world.clock.sleep(5_000);
+    world.holdCli = world.clock.sleep(5000);
     const started = await $.session.start(SESSION);
     expect(started).toEqual({ cwd: "/repo" });
     expect(world.cli).toHaveLength(1);
     expect(world.statuses).toEqual([]);
-    await world.clock.advance(5_000);
+    await world.clock.advance(5000);
     await world.clock.settle();
     expect(cliCommands(world)).toEqual(["config", "status"]);
     expect(world.statuses).toEqual(["2 Proposals en attente · /hindsight review"]);
@@ -176,6 +201,7 @@ describe("the Gate at turn.complete", () => {
     world.messages = [
       toolMessage("Bash", { command: "bun test -u" }, "The user doesn't want to proceed with this tool use.", true),
     ];
+
     const result = await $.turn.complete({
       answer: "ok",
       durationMs: 10,
@@ -183,6 +209,7 @@ describe("the Gate at turn.complete", () => {
       turnId: "t-1",
       reason: "answer",
     });
+
     expect(result).toEqual({ text: "" });
     expect(world.classified).toEqual([]);
     await world.clock.advance(1);
@@ -198,9 +225,11 @@ describe("the Gate at turn.complete", () => {
     expect(body.text).toBe(FORK_ANSWER);
     expect(body.cacheShare).toBeGreaterThan(0.98);
     expect(world.toasts).toEqual(["Debrief : 1 Note(s) retenue(s)"]);
+
     const decisions = world.cli
       .filter((call) => call.argv.includes("gate"))
       .map((call) => JSON.parse(call.stdin ?? "{}"));
+
     expect(decisions.map((d: { decision: string }) => d.decision)).toEqual(["skip", "debrief"]);
   });
 
@@ -214,9 +243,11 @@ describe("the Gate at turn.complete", () => {
     await world.clock.advance(1);
     await world.clock.settle();
     expect(world.forked).toEqual([]);
+
     const decisions = world.cli
       .filter((call) => call.argv.includes("gate"))
       .map((call) => JSON.parse(call.stdin ?? "{}"));
+
     expect(decisions.at(-1)).toMatchObject({ decision: "skip", reason: "classifier-skip" });
   });
 
@@ -251,10 +282,12 @@ describe("/hindsight", () => {
     const world = build(on);
     await $.session.start(SESSION);
     await world.clock.settle();
+
     for (const args of ["", "status", "review", "learn", "handoff", "bogus"]) {
       const answer = await $.command.run({ command: "hindsight", args, ...RUN });
       expect(answer).toEqual({});
     }
+
     await world.clock.settle();
     expect(world.toasts.length).toBeGreaterThanOrEqual(5);
     expect(world.toasts.every((toast) => toast.length > 0)).toBe(true);

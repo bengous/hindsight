@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { Command } from "effect/cli";
 import { existsSync, readdirSync, statSync } from "node:fs";
+
 import { Store } from "../store/db.ts";
 import { AppPaths, printJson } from "./app.ts";
 
@@ -11,12 +12,20 @@ function mode(path: string): string | null {
 }
 
 function countTranscripts(projectsDir: string): number {
-  if (!existsSync(projectsDir)) return 0;
+  if (!existsSync(projectsDir)) {
+    return 0;
+  }
+
   let count = 0;
+
   for (const project of readdirSync(projectsDir, { withFileTypes: true })) {
-    if (!project.isDirectory()) continue;
+    if (!project.isDirectory()) {
+      continue;
+    }
+
     count += readdirSync(`${projectsDir}/${project.name}`).filter((name) => name.endsWith(".jsonl")).length;
   }
+
   return count;
 }
 
@@ -28,6 +37,7 @@ export const doctor = Command.make(
     const store = yield* Store;
     const version = yield* store.get<{ user_version: number }>("PRAGMA user_version");
     const transcripts = countTranscripts(paths.projectsDir);
+
     const checks: Check[] = [
       {
         name: "state dir",
@@ -48,6 +58,7 @@ export const doctor = Command.make(
       { name: "claude", ok: Bun.which("claude") !== null, detail: Bun.which("claude") ?? "not on PATH" },
       { name: "bun", ok: true, detail: Bun.version },
     ];
+
     yield* printJson({ ok: checks.every((check) => check.ok), checks });
   }),
 ).pipe(Command.withDescription("Paths, permissions, database schema, transcripts and the claude binary"));

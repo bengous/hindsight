@@ -1,5 +1,6 @@
 import { Effect, Schema } from "effect";
 import { Command, Flag } from "effect/cli";
+
 import { recordDebrief } from "../debrief/record.ts";
 import { newId } from "../rules/ids.ts";
 import { Store } from "../store/db.ts";
@@ -44,11 +45,15 @@ const record = Command.make(
     const paths = yield* AppPaths;
     const raw = yield* readStdin;
     const input = yield* Schema.decodeUnknownEffect(RecordStdin)(JSON.parse(raw));
-    const session = yield* Effect.promise(() => readSession(paths.projectsDir, input.sessionId));
+    const session = yield* Effect.promise(async () => readSession(paths.projectsDir, input.sessionId));
     const outcome = yield* store.transaction((db) => recordDebrief(db, config, session, { id, ...input }));
     const pending = yield* store.transaction((db) => countPendingNotes(db));
     const learnStarted = pending >= config.learn.pendingNotes && process.env["HINDSIGHT_NO_LEARN"] === undefined;
-    if (learnStarted) detachLearn(paths, true);
+
+    if (learnStarted) {
+      detachLearn(paths, true);
+    }
+
     yield* printJson({ ...outcome, learnStarted });
   }),
 ).pipe(Command.withDescription("Reads the fork's answer on stdin, verifies every Note and stores what holds"));
