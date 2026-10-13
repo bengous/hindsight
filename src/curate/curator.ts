@@ -13,8 +13,8 @@ import type {
 } from "../types.ts";
 import type { ClusterRef, CuratorGroup, Dropped, ItemRef, RuleSource } from "./groups.ts";
 import type { Occurrence } from "./prevalence.ts";
+import { redactSecrets } from "../domain/redact.ts";
 import { array, nullable, object, oneOf, string } from "../model/codec.ts";
-import { redactSecrets } from "../model/redact.ts";
 import { EvidenceError } from "./extract.ts";
 import { GLOBAL_GROUP } from "./groups.ts";
 import { displayPath, expandHome, normalizeLesson, sha1 } from "./ids.ts";

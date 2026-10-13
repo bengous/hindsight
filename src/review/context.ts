@@ -1,4 +1,4 @@
-import { redactSecrets } from "../model/redact.ts";
+import { redactSecrets } from "../domain/redact.ts";
 
 export type QuoteContext =
   | {

@@ -2,10 +2,10 @@ import type { Budget } from "../model/budget.ts";
 import type { Effort, ModelAlias, ModelRunner } from "../model/claude.ts";
 import type { Infer } from "../model/codec.ts";
 import type { EvidenceId, HumanMessage, IsoTimestamp, Marker, SessionDigest, SteeringItem } from "../types.ts";
+import { redactSecrets } from "../domain/redact.ts";
 import { budgetedCall } from "../model/budget.ts";
 import { ModelError } from "../model/claude.ts";
 import { array, nullable, object, oneOf, string } from "../model/codec.ts";
-import { redactSecrets } from "../model/redact.ts";
 import { collapseWhitespace, containsVerbatim, displayPath, isSeedId, sha1 } from "./ids.ts";
 
 export type ExtractionMessage = {

@@ -1,0 +1,3 @@
+{"type": "user", "uuid": "a01", "timestamp": "2026-10-01T09:00:00.000Z", "sessionId": "s-d0", "cwd": "/home/u/atelier", "entrypoint": "cli", "version": "2.1.296", "origin": {"kind": "human"}, "promptSource": "typed", "message": {"role": "user", "content": "Corrige le script check. Non, pas de npm pour ça, on reste sur pnpm."}}
+{"type": "assistant", "uuid": "a02", "timestamp": "2026-10-01T09:00:05.000Z", "sessionId": "s-d0", "cwd": "/home/u/atelier", "entrypoint": "cli", "version": "2.1.296", "message": {"role": "assistant", "content": [{"type": "text", "text": "D'accord."}]}}
+{"type": "continued-in", "continuedInSessionId": "s-d1", "sessionId": "s-d0"}

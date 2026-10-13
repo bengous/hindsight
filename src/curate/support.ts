@@ -1,8 +1,8 @@
 import type { Budget } from "../model/budget.ts";
 import type { Effort, ModelAlias, ModelRunner } from "../model/claude.ts";
+import { redactSecrets } from "../domain/redact.ts";
 import { budgetedCall } from "../model/budget.ts";
 import { array, boolean, object, string } from "../model/codec.ts";
-import { redactSecrets } from "../model/redact.ts";
 import { collapseWhitespace, normalizeLesson, sha1 } from "./ids.ts";
 
 export type SupportMember = {
