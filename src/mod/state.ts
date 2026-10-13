@@ -78,6 +78,53 @@ export async function writeState(host: Host, sessionId: string, state: SessionSt
   await host.storeSet(`${SESSION_PREFIX}${sessionId}`, { ...state, updatedAt: now });
 }
 
+const queues = new Map<string, Promise<unknown>>();
+
+/** `$.store` has no versions: the mod's read-modify-writes of one session run one after the other. */
+async function exclusive<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
+  const previous = queues.get(sessionId) ?? Promise.resolve();
+
+  const run = (async (): Promise<T> => {
+    await previous;
+
+    return fn();
+  })();
+
+  queues.set(sessionId, Promise.allSettled([run]));
+
+  return run;
+}
+
+export async function changeState(
+  host: Host,
+  sessionId: string,
+  now: number,
+  change: (state: SessionState) => SessionState,
+): Promise<SessionState> {
+  return exclusive(sessionId, async () => {
+    const next = change(await readState(host, sessionId, now));
+    await writeState(host, sessionId, next, now);
+
+    return next;
+  });
+}
+
+/** Takes the session's fork lock and answers the state as locked, or null while another fork holds it. */
+export async function takeFork(host: Host, sessionId: string, now: number): Promise<SessionState | null> {
+  return exclusive(sessionId, async () => {
+    const state = await readState(host, sessionId, now);
+
+    if (state.forkRunning) {
+      return null;
+    }
+
+    const locked = { ...state, forkRunning: true, forkStartedAt: now };
+    await writeState(host, sessionId, locked, now);
+
+    return locked;
+  });
+}
+
 export function utcDayOf(now: number): string {
   return new Date(now).toISOString().slice(0, 10);
 }

@@ -2,7 +2,7 @@ import type { HindsightConfig } from "../domain/config.ts";
 import type { JsonObject, JsonValue } from "../domain/json.ts";
 import type { Host, ReviewState } from "./host.ts";
 import type { PaneItem, ReviewActions } from "./review-pane.tsx";
-import type { EngineInterface, Register } from "claude-code";
+import type { EngineInterface, Register, SessionMessage } from "claude-code";
 
 import { atom, read, update } from "claude-code";
 
@@ -15,7 +15,7 @@ import { cliConfig, cliStatus, runCli } from "./cli-client.ts";
 import { afterTurn, classifyThenDebrief } from "./gate.ts";
 import { noticeLine } from "./notice.ts";
 import { drawReview, emptyReview, isPaneItem } from "./review-pane.tsx";
-import { pruneStore, readState, writeState } from "./state.ts";
+import { changeState, pruneStore, readState } from "./state.ts";
 
 const PANE = "hindsight-review";
 
@@ -111,18 +111,26 @@ async function captureHuman(host: Host, text: string): Promise<void> {
 
   const now = await host.now();
   const sessionId = await host.sessionId();
-  const state = await readState(host, sessionId, now);
-  await writeState(host, sessionId, { ...state, facts: addHumanText(state.facts, cleaned) }, now);
+  await changeState(host, sessionId, now, (state) => ({ ...state, facts: addHumanText(state.facts, cleaned) }));
 }
 
-async function endTurn(host: Host, turnId: string, isAborted: boolean, agentId: string | null): Promise<void> {
-  const outcome = await afterTurn(host, config, { turnId, isAborted, agentId, isInteractive });
+async function endTurn(
+  host: Host,
+  turnId: string,
+  isAborted: boolean,
+  messages: readonly SessionMessage[],
+): Promise<void> {
+  const outcome = await afterTurn(host, config, { turnId, isAborted, agentId: null, isInteractive }, messages);
 
   if (outcome.kind !== "pass") {
     return;
   }
 
-  await classifyThenDebrief(host, config, turnId, outcome.brief, outcome.score, false);
+  try {
+    await classifyThenDebrief(host, config, turnId, outcome.brief, outcome.score, false);
+  } catch (error) {
+    logFailure(host, "debrief pipeline")(error);
+  }
 }
 
 async function forceDebrief(host: Host): Promise<void> {
@@ -179,8 +187,8 @@ function decisionLabel(kind: JsonValue | undefined): string {
   return "en Handoff";
 }
 
-function dropCurrent(state: ReviewState): ReviewState {
-  const items = state.items.filter((_, index) => index !== state.index);
+function dropProposal(state: ReviewState, id: string): ReviewState {
+  const items = state.items.filter((item) => item.id !== id);
 
   return {
     ...state,
@@ -191,12 +199,12 @@ function dropCurrent(state: ReviewState): ReviewState {
   };
 }
 
-async function decide(host: Host, body: JsonObject): Promise<void> {
+async function decide(host: Host, id: string, decision: JsonObject): Promise<void> {
   await host.updateReview((state) => ({ ...state, mode: { kind: "busy", label: "Décision en cours…" }, notice: null }));
 
   try {
     const answer = await runCli(host, ["review", "decide"], {
-      stdin: JSON.stringify(body),
+      stdin: JSON.stringify({ id, ...decision }),
       timeoutMs: DECIDE_TIMEOUT_MS,
     });
 
@@ -211,11 +219,22 @@ async function decide(host: Host, body: JsonObject): Promise<void> {
       }));
     } else {
       host.toast(`Proposal ${decisionLabel(kind)}`);
-      await host.updateReview(dropCurrent);
+      await host.updateReview((state) => dropProposal(state, id));
     }
   } catch (error) {
     await host.updateReview((state) => ({ ...state, mode: { kind: "view" }, notice: describe(error) }));
   }
+}
+
+/** The drafts of the item being edited; seeded again when a reload emptied them while `$.state` kept the edit mode. */
+function draftsFor(state: ReviewState): readonly string[] {
+  const item = state.items[state.index];
+
+  if (state.mode.kind === "edit" && item?.change.kind === "edit" && drafts.length !== item.change.edits.length) {
+    drafts = item.change.edits.map((edit) => toDraft(edit.newText));
+  }
+
+  return drafts;
 }
 
 function paneActions(host: Host): ReviewActions {
@@ -237,7 +256,7 @@ function paneActions(host: Host): ReviewActions {
   };
 
   return {
-    accept: (edits) => onCurrent(async (item) => decide(host, { id: item.id, decision: "accept", edits })),
+    accept: (edits) => onCurrent(async (item) => decide(host, item.id, { decision: "accept", edits })),
     acceptEdited: () =>
       onCurrent(async (item, state) => {
         if (item.change.kind !== "edit" || state.mode.kind !== "edit") {
@@ -249,7 +268,7 @@ function paneActions(host: Host): ReviewActions {
           newText: fromDraft(drafts[index] ?? toDraft(edit.newText)),
         }));
 
-        await decide(host, { id: item.id, decision: "accept", edits });
+        await decide(host, item.id, { decision: "accept", edits });
       }),
     reject: (reason) =>
       onCurrent(async (item) => {
@@ -259,9 +278,9 @@ function paneActions(host: Host): ReviewActions {
           return;
         }
 
-        await decide(host, { id: item.id, decision: "reject", reason: reason.trim() });
+        await decide(host, item.id, { decision: "reject", reason: reason.trim() });
       }),
-    handoff: () => onCurrent(async (item) => decide(host, { id: item.id, decision: "handoff" })),
+    handoff: () => onCurrent(async (item) => decide(host, item.id, { decision: "handoff" })),
     next: () =>
       change((state) =>
         state.items.length === 0
@@ -393,8 +412,10 @@ export const register: Register = (on) => {
     if (e.agentId === undefined) {
       const host = makeHost($);
 
+      const messages = await host.messages();
+
       host.after(1, () => {
-        void endTurn(host, e.turnId, e.isAborted, null).catch(logFailure(host, "gate"));
+        void endTurn(host, e.turnId, e.isAborted, messages).catch(logFailure(host, "gate"));
       });
     }
 
@@ -419,7 +440,9 @@ export const register: Register = (on) => {
     return {};
   });
 
-  on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) =>
-    drawReview($.ui.resolve(e), await read($, REVIEW), drafts, paneActions(makeHost($)), e.props.bodyColumns),
-  );
+  on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
+    const state = await read($, REVIEW);
+
+    return drawReview($.ui.resolve(e), state, draftsFor(state), paneActions(makeHost($)), e.props.bodyColumns);
+  });
 };

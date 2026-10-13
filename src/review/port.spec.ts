@@ -1,7 +1,9 @@
 import type { StoreService } from "../store/db.ts";
 import type { ProposalInsert } from "../store/queries.ts";
+import type { ReviewItem } from "./port.ts";
+import type { PluginState } from "claude-code";
 
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, expectTypeOf, test } from "bun:test";
 import { Effect } from "effect";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -61,6 +63,12 @@ beforeEach(async () => {
   store = await Effect.runPromise(makeStore(":memory:"));
   repo.write("AGENTS.md", RULES);
   repo.git("commit", "-qam", "reset", "--allow-empty");
+});
+
+describe("the pane's contract", () => {
+  test("every item the port lists is an item the pane draws", () => {
+    expectTypeOf<ReviewItem>().toMatchTypeOf<PluginState["hindsight"]["review"]["items"][number]>();
+  });
 });
 
 describe("listReview", () => {

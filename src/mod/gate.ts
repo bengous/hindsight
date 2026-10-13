@@ -10,7 +10,7 @@ import { classifierText, gateBrief, gatePasses, gateSignals, gateSkip } from "..
 import { isString } from "../domain/json.ts";
 import { cliGateLog } from "./cli-client.ts";
 import { debriefToast, runDebrief } from "./debrief.ts";
-import { countDebriefToday, debriefsToday, factsSince, readState, writeState } from "./state.ts";
+import { changeState, countDebriefToday, debriefsToday, factsSince, takeFork } from "./state.ts";
 
 export type TurnEnd = {
   readonly turnId: string;
@@ -60,15 +60,26 @@ export type GateOutcome =
   | { readonly kind: "skip"; readonly reason: string }
   | { readonly kind: "pass"; readonly brief: string; readonly score: number };
 
-/** The code's part of the Gate at the end of a turn: updates the facts, then skips or passes to the classifier. */
-export async function afterTurn(host: Host, config: HindsightConfig, turn: TurnEnd): Promise<GateOutcome> {
+/** The code's part of the Gate at the end of a turn: adds the turn's tool uses to the facts, then skips or passes to the classifier. */
+export async function afterTurn(
+  host: Host,
+  config: HindsightConfig,
+  turn: TurnEnd,
+  messages: readonly SessionMessage[],
+): Promise<GateOutcome> {
   const now = await host.now();
   const sessionId = await host.sessionId();
-  const state = await readState(host, sessionId, now);
-  const tools = lastTurnTools(await host.messages());
-  const withTools = { ...state, facts: addToolUses(state.facts, tools) };
-  const facts = turn.isAborted ? markInterrupted(withTools.facts) : withTools.facts;
+  const tools = lastTurnTools(messages);
   const repoRoot = await host.repoRoot();
+  const today = await debriefsToday(host, now);
+
+  const state = await changeState(host, sessionId, now, (current) => {
+    const withTools = addToolUses(current.facts, tools);
+
+    return { ...current, facts: turn.isAborted ? markInterrupted(withTools) : withTools };
+  });
+
+  const { facts } = state;
 
   const gateState: GateState = {
     isInteractive: turn.isInteractive,
@@ -78,13 +89,12 @@ export async function afterTurn(host: Host, config: HindsightConfig, turn: TurnE
     repoRoot,
     lastDebriefAt: state.lastDebriefAt,
     debriefsInSession: state.debriefsInSession,
-    debriefsToday: await debriefsToday(host, now),
+    debriefsToday: today,
     now,
   };
 
   const skip = gateSkip(gateState, facts, config);
   const signals = gateSignals(facts);
-  await writeState(host, sessionId, { ...withTools, facts }, now);
 
   if (skip !== null) {
     cliGateLog(host, {
@@ -116,8 +126,7 @@ export async function afterTurn(host: Host, config: HindsightConfig, turn: TurnE
 }
 
 async function setFork(host: Host, sessionId: string, update: (state: SessionState) => SessionState): Promise<void> {
-  const now = await host.now();
-  await writeState(host, sessionId, update(await readState(host, sessionId, now)), now);
+  await changeState(host, sessionId, await host.now(), update);
 }
 
 /** The model's part: the classifier, then the Debrief. Runs off the turn's dispatch, from a timer. */
@@ -131,15 +140,13 @@ export async function classifyThenDebrief(
 ): Promise<void> {
   const sessionId = await host.sessionId();
   const startedAt = await host.now();
-  const state = await readState(host, sessionId, startedAt);
+  const state = await takeFork(host, sessionId, startedAt);
 
-  if (state.forkRunning) {
+  if (state === null) {
     cliGateLog(host, { sessionId, turnId, decision: "skip", reason: "fork-running", score, signals: [] });
 
     return;
   }
-
-  await writeState(host, sessionId, { ...state, forkRunning: true, forkStartedAt: startedAt }, startedAt);
 
   const release = async (): Promise<void> =>
     setFork(host, sessionId, (current) => ({ ...current, forkRunning: false, forkStartedAt: null }));
