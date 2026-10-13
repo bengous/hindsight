@@ -6,6 +6,8 @@
     "name": "Augustin BENGOLEA",
     "email": "bengous@protonmail.com"
   },
+  "homepage": "https://github.com/bengous/hindsight",
+  "repository": "https://github.com/bengous/hindsight",
   "license": "MIT",
   "keywords": ["rules", "agents-md", "debrief", "function-hooks", "review"],
   "types": "./types/index.d.ts"

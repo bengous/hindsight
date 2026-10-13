@@ -13,11 +13,15 @@ Nothing of hindsight enters the agent's context.
 
 ## Install
 
+At the prompt of a Claude Code session:
+
 ```
-/plugin install hindsight --marketplace <checkout>
+/plugin install hindsight --marketplace bengous/hindsight
 ```
 
-The marketplace is this checkout, read in place: edit, then `/reload-plugins`. The CLI runs with `bun src/cli/main.ts <command>` and needs the `claude` CLI, logged in, for Learn.
+Answer `y` to add the marketplace, then pick a scope. The CLI runs with `bun src/cli/main.ts <command>` and needs Bun and the `claude` CLI, logged in, for Learn.
+
+To work on it, add the checkout as a marketplace and install from it: `claude plugin marketplace add <checkout>`, then `claude plugin install hindsight@hindsight`. The plugin is read in place: edit, then `/reload-plugins`. A session can also load it for itself with `claude --plugin-dir <checkout>`, which hot-reloads the mod on every save.
 
 ## Commands
 
