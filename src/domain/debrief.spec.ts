@@ -26,6 +26,7 @@ describe("debriefPrompt", () => {
     expect(prompt).toContain("Call no tool");
     expect(prompt).toContain('"staleRules"');
     expect(prompt).toContain("in English");
+    expect(prompt).toContain("Question 5 has no such threshold");
   });
 });
 

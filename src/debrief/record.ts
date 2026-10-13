@@ -318,6 +318,7 @@ export function recordDebrief(
       durationMs: input.durationMs,
       failure,
       rejected: {},
+      answer: input.text,
     });
     return {
       id: input.id,
@@ -342,6 +343,7 @@ export function recordDebrief(
     durationMs: input.durationMs,
     failure: null,
     rejected: rejections.counts,
+    answer: input.text,
   });
   return { id: input.id, status: "recorded", failure: null, notes, proposals, rejected: rejections.counts };
 }

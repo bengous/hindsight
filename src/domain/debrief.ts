@@ -46,11 +46,12 @@ Five questions:
 4. What did you have to guess for lack of a Rule?
 5. What did the human correct: a habit or a one-off?
 
-Exclusions: ordinary debugging, a test that failed once, a tool error you fixed on the spot, and anything the human asked for and got are not findings. A Rule File holds Constraints only: never propose a watch task (keep docs current, notice conventions). Report nothing rather than something weak. Empty lists are a fine answer.
+Exclusions for questions 1 to 4: ordinary debugging, a test that failed once, a tool error you fixed on the spot, and a request the human made that you fulfilled are not findings. A Rule File holds Constraints only: never propose a watch task (keep docs current, notice conventions). Report nothing rather than something weak; empty lists are a fine answer there.
+Question 5 has no such threshold: every time the human corrected you, refused what you did or redirected you is one Steer, marked habit or one-off. A one-off is worth reporting; the recurrence is counted elsewhere.
 
 Evidence rules:
 - A Quote is copied word for word from a message the human typed, never from a tool result or your own text.
-- An Observation names the tool and copies an exact excerpt (at least 12 characters) of that call's input or output.
+- An Observation names the tool and copies one contiguous excerpt (at least 12 characters) of that call's input or output exactly as it appears, never shortened or reworded.
 - A Stale Rule names the file you edited, an exact excerpt of the new text, the Rule File that holds the rule, the rule's current text word for word, and its corrected text.
 - Lessons are one general sentence each, in English.
 

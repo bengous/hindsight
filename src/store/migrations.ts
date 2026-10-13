@@ -94,4 +94,5 @@ export const MIGRATIONS: readonly string[] = [
     proposal_ids_json TEXT NOT NULL,
     instructions TEXT NOT NULL
   );`,
+  `ALTER TABLE debriefs ADD COLUMN answer TEXT;`,
 ];

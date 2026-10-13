@@ -14,6 +14,7 @@ export type DebriefRow = {
   readonly duration_ms: number | null;
   readonly failure: string | null;
   readonly rejected_json: string | null;
+  readonly answer: string | null;
 };
 
 export type NoteKind = "steer" | "observation" | "stale_rule";
@@ -121,11 +122,12 @@ export function finishDebrief(
     durationMs: number | null;
     failure: string | null;
     rejected: Readonly<Record<string, number>>;
+    answer: string | null;
   },
 ): void {
   db.run(
-    "UPDATE debriefs SET status = ?, finished_at = ?, cache_share = ?, duration_ms = ?, failure = ?, rejected_json = ? WHERE id = ?",
-    [row.status, row.at, row.cacheShare, row.durationMs, row.failure, JSON.stringify(row.rejected), row.id],
+    "UPDATE debriefs SET status = ?, finished_at = ?, cache_share = ?, duration_ms = ?, failure = ?, rejected_json = ?, answer = ? WHERE id = ?",
+    [row.status, row.at, row.cacheShare, row.durationMs, row.failure, JSON.stringify(row.rejected), row.answer, row.id],
   );
 }
 
