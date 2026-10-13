@@ -9,7 +9,7 @@ import { Effect } from "effect";
 import { join } from "node:path";
 
 import { defaultConfig } from "../domain/config.ts";
-import { fingerprint } from "../rules/ids.ts";
+import { fingerprint } from "../platform/ids.ts";
 import { makeStore } from "../store/db.ts";
 import { abortStaleDebriefs, insertDebrief } from "../store/queries.ts";
 import { readSession } from "../transcripts/session.ts";

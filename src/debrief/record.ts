@@ -9,8 +9,8 @@ import { basename, dirname } from "node:path";
 
 import { parseDebrief } from "../domain/debrief.ts";
 import { collapseWhitespace, containsVerbatim } from "../domain/text.ts";
-import { gitToplevelSync } from "../rules/git.ts";
-import { fingerprint, newId } from "../rules/ids.ts";
+import { gitToplevelSync } from "../platform/git.ts";
+import { fingerprint, newId } from "../platform/ids.ts";
 import {
   finishDebrief,
   getDebrief,

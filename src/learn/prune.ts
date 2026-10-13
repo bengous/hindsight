@@ -7,7 +7,7 @@ import { Effect } from "effect";
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
 
-import { newId, sha1 } from "../rules/ids.ts";
+import { newId, sha1 } from "../platform/ids.ts";
 import { inventory } from "../rules/inventory.ts";
 import { staleScan } from "../rules/stale.ts";
 import { Store } from "../store/db.ts";

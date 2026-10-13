@@ -3,7 +3,7 @@ import type { Prevalence } from "../store/queries.ts";
 import { existsSync, rmSync } from "node:fs";
 import { relative } from "node:path";
 
-import { git, hashObject, run } from "./git.ts";
+import { git, hashObject, run } from "../platform/git.ts";
 import { isInside } from "./inventory.ts";
 
 export type TextEdit = { readonly oldText: string; readonly newText: string };

@@ -11,7 +11,7 @@ import { Cause, Effect, Schema } from "effect";
 import { existsSync } from "node:fs";
 
 import { markersFor } from "../domain/human.ts";
-import { newId } from "../rules/ids.ts";
+import { newId } from "../platform/ids.ts";
 import { inventory } from "../rules/inventory.ts";
 import { Store } from "../store/db.ts";
 import {

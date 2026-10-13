@@ -14,7 +14,7 @@ import { join } from "node:path";
 
 import { tempDir, tempRepo } from "../../fixtures/rules/repo.ts";
 import { defaultConfig } from "../domain/config.ts";
-import { fingerprint } from "../rules/ids.ts";
+import { fingerprint } from "../platform/ids.ts";
 import { Store, makeStore } from "../store/db.ts";
 import { insertDebrief, insertNote } from "../store/queries.ts";
 import { ClaudeRunner, ModelError, scriptedRunner } from "./claude.ts";

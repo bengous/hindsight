@@ -10,8 +10,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { nextProposalState } from "../domain/proposal.ts";
 import { redactSecrets } from "../domain/redact.ts";
 import { ChangeSchema } from "../learn/schema.ts";
+import { newId } from "../platform/ids.ts";
 import { applyChange, editedText } from "../rules/apply.ts";
-import { newId } from "../rules/ids.ts";
 import { Store } from "../store/db.ts";
 
 /** One Proposal as the Review shows it; the surface (pane today, a page later) only draws it. */

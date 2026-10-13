@@ -2,7 +2,7 @@ import { Effect, Option, Schema } from "effect";
 import { Command, Flag } from "effect/cli";
 
 import { recordDebrief } from "../debrief/record.ts";
-import { newId } from "../rules/ids.ts";
+import { newId } from "../platform/ids.ts";
 import { Store } from "../store/db.ts";
 import { countPendingNotes, insertDebrief } from "../store/queries.ts";
 import { readSession } from "../transcripts/session.ts";

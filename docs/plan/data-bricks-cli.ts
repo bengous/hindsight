@@ -264,7 +264,7 @@ add(
   "rules/apply.ts · git.ts",
   "applyChange · commit d'un fichier",
   {
-    kicker: "src/rules/apply.ts · src/rules/git.ts",
+    kicker: "src/rules/apply.ts · src/platform/git.ts",
     title: "L'application d'un accept",
     lead: "Un fichier global hors dépôt : une écriture. Un fichier dans un checkout : le fichier doit exister (ou non, pour une création), être propre dans <code>git status</code>, et chaque ancien texte y figurer exactement une fois ; puis <code>git add</code> au besoin et <code>git commit --quiet --file=- -- &lt;chemin&gt;</code>, hooks actifs. Un commit refusé restaure le fichier.",
     io: [

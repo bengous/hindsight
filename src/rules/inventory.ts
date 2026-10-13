@@ -4,7 +4,7 @@ import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 
-import { gitToplevel, hashObject, listFiles } from "./git.ts";
+import { gitToplevel, hashObject, listFiles } from "../platform/git.ts";
 import { frontmatterPaths, importTargets, ruleBullets } from "./markdown.ts";
 
 export type InventoryEnv = {

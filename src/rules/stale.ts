@@ -4,7 +4,7 @@ import { Schema } from "effect";
 import { existsSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
-import { listFiles, run } from "./git.ts";
+import { listFiles, run } from "../platform/git.ts";
 import { expandBraces, globMatcher, matchesOnDisk, ownerDir } from "./glob.ts";
 import { isInside } from "./inventory.ts";
 import { bodyLines, bulletAt, codeSpans } from "./markdown.ts";

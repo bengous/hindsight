@@ -137,7 +137,7 @@ add(
   "Dépôt git",
   "un commit, jamais poussé",
   {
-    kicker: "src/rules/git.ts",
+    kicker: "src/platform/git.ts",
     title: "Le dépôt cible",
     lead: "Le checkout qui porte la Rule File d'une Proposal acceptée. Git y tourne avec les variables <code>GIT_*</code> du dépôt courant retirées, donc les hooks du dépôt cible s'exécutent et peuvent refuser le commit : le fichier est alors restauré et la Proposal libérée.",
     io: [
