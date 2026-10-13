@@ -1,39 +1,4 @@
 {
-  "compilerOptions": {
-    "allowImportingTsExtensions": true,
-    "allowJs": false,
-    "allowUnreachableCode": false,
-    "allowUnusedLabels": false,
-    "exactOptionalPropertyTypes": true,
-    "lib": [
-      "ESNext",
-      "DOM"
-    ],
-    "module": "Preserve",
-    "moduleDetection": "force",
-    "moduleResolution": "bundler",
-    "noEmit": true,
-    "noFallthroughCasesInSwitch": true,
-    "noImplicitOverride": true,
-    "noImplicitReturns": true,
-    "noPropertyAccessFromIndexSignature": true,
-    "noUncheckedIndexedAccess": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "target": "ESNext",
-    "types": [
-      "bun"
-    ],
-    "verbatimModuleSyntax": true
-  },
-  "include": [
-    "src/**/*.ts",
-    "fixtures/**/*.ts"
-  ],
-  "exclude": [
-    "src/mod/**",
-    "node_modules"
-  ]
+  "files": [],
+  "references": [{ "path": "./tsconfig.bun.json" }, { "path": "./tsconfig.mod.json" }]
 }

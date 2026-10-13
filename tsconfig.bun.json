@@ -1,0 +1,35 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["bun"],
+    "plugins": [
+      {
+        "allowedUnstableApis": ["effect/cli"],
+        "completions": true,
+        "diagnosticSeverity": {
+          "anyUnknownInErrorContext": "warning",
+          "deterministicKeys": "warning",
+          "extendsNativeError": "warning",
+          "catchUnfailableEffect": "suggestion",
+          "instanceOfSchema": "warning",
+          "missedPipeableOpportunity": "suggestion",
+          "missingEffectServiceDependency": "warning",
+          "nodeBuiltinImport": "suggestion",
+          "preferSchemaOverJson": "suggestion",
+          "schemaUnionOfLiterals": "suggestion",
+          "serviceNotAsClass": "warning",
+          "strictBooleanExpressions": "warning",
+          "strictEffectProvide": "warning",
+          "tryCatchInEffectGen": "suggestion"
+        },
+        "diagnostics": true,
+        "ignoreEffectWarningsInTscExitCode": false,
+        "name": "@effect/language-service",
+        "quickinfo": true
+      }
+    ]
+  },
+  "files": ["src/mod/mod.spec.ts"],
+  "include": ["src/**/*.ts", "fixtures/**/*.ts", "tools/**/*.ts", "*.config.ts", "types/claude-code.d.ts"],
+  "exclude": ["src/mod/**", "tools/oxlint/anti-slop/**"]
+}
