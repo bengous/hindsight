@@ -1,4 +1,4 @@
-import type { RuleFile } from "../types.ts";
+import type { RuleFile } from "./types.ts";
 import { existsSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 

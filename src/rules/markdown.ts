@@ -1,4 +1,4 @@
-import type { RuleBullet } from "../types.ts";
+import type { RuleBullet } from "./types.ts";
 import { splitTopLevel } from "./glob.ts";
 
 export type BodyLine = {

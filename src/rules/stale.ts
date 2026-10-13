@@ -1,4 +1,4 @@
-import type { RuleFile, StaleFinding } from "../types.ts";
+import type { RuleFile, StaleFinding } from "./types.ts";
 import { existsSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { listFiles, run } from "./git.ts";

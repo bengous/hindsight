@@ -3,9 +3,10 @@ import { Command, Flag } from "effect/cli";
 import { recordDebrief } from "../debrief/record.ts";
 import { newId } from "../rules/ids.ts";
 import { Store } from "../store/db.ts";
-import { insertDebrief } from "../store/queries.ts";
+import { countPendingNotes, insertDebrief } from "../store/queries.ts";
 import { readSession } from "../transcripts/session.ts";
 import { AppConfig, AppPaths, nowIso, printJson, readStdin } from "./app.ts";
+import { detachLearn } from "./learn.ts";
 
 const RecordStdin = Schema.Struct({
   sessionId: Schema.String,
@@ -45,7 +46,10 @@ const record = Command.make(
     const input = yield* Schema.decodeUnknownEffect(RecordStdin)(JSON.parse(raw));
     const session = yield* Effect.promise(() => readSession(paths.projectsDir, input.sessionId));
     const outcome = yield* store.transaction((db) => recordDebrief(db, config, session, { id, ...input }));
-    yield* printJson(outcome);
+    const pending = yield* store.transaction((db) => countPendingNotes(db));
+    const learnStarted = pending >= config.learn.pendingNotes && process.env["HINDSIGHT_NO_LEARN"] === undefined;
+    if (learnStarted) detachLearn(paths, true);
+    yield* printJson({ ...outcome, learnStarted });
   }),
 ).pipe(Command.withDescription("Reads the fork's answer on stdin, verifies every Note and stores what holds"));
 

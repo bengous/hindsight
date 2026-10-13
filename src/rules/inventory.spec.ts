@@ -1,4 +1,4 @@
-import type { RuleFile } from "../types.ts";
+import type { RuleFile } from "./types.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -21,13 +21,6 @@ const project = tempRepo({
 });
 project.write("CLAUDE.local.md", "- Personal, ignored.\n");
 
-const dotfiles = tempRepo({
-  "dot_agents/AGENTS.md": "- Global rule one.\n- Global rule two.\n",
-  "dot_claude/CLAUDE.md": "@AGENTS.md\n",
-  "dot_claude/output-styles/plain.md.tmpl": '---\nname: plain\n---\n- Style rule.\n{{ template "core.md" . }}\n',
-  ".chezmoitemplates/core.md": "- Answer in plain words.\n",
-});
-
 const home = tempDir("home");
 writeTree(home, {
   ".claude/CLAUDE.md": "@AGENTS.md\n",
@@ -36,24 +29,10 @@ writeTree(home, {
   ".claude/output-styles/plain.md": "---\nname: plain\n---\n- Answer in plain words.\n",
 });
 
-const env: InventoryEnv = {
-  home,
-  resolveSource: async (loadedPath) => {
-    if (loadedPath === join(home, ".claude/AGENTS.md")) return [join(dotfiles.root, "dot_agents/AGENTS.md")];
-    if (loadedPath === join(home, ".claude/CLAUDE.md")) return [join(dotfiles.root, "dot_claude/CLAUDE.md")];
-    if (loadedPath === join(home, ".claude/output-styles/plain.md")) {
-      return [
-        join(dotfiles.root, "dot_claude/output-styles/plain.md.tmpl"),
-        join(dotfiles.root, ".chezmoitemplates/core.md"),
-      ];
-    }
-    return [loadedPath];
-  },
-};
+const env: InventoryEnv = { home };
 
 afterAll(() => {
   project.cleanup();
-  dotfiles.cleanup();
   rmSync(home, { recursive: true, force: true });
 });
 
@@ -66,7 +45,7 @@ function byLoaded(files: readonly RuleFile[], path: string): RuleFile {
 describe("inventory", () => {
   let files: readonly RuleFile[] = [];
   beforeAll(async () => {
-    files = await inventory([project.root, dotfiles.root], env);
+    files = await inventory([project.root], env);
   });
 
   test("lists root, imported, nested and rules files, and skips ignored ones", () => {
@@ -74,7 +53,6 @@ describe("inventory", () => {
     expect(loaded).toEqual([
       "H/.claude/AGENTS.md",
       "H/.claude/CLAUDE.md",
-      "H/.claude/output-styles/plain.md",
       "H/.claude/output-styles/plain.md",
       "H/.claude/rules/global.md",
       "P/.claude/output-styles/terse.md",
@@ -89,12 +67,11 @@ describe("inventory", () => {
     ]);
   });
 
-  test("resolves a global file to its source checkout and keeps one entry per source", () => {
+  test("a global file is edited where the agents load it, with no checkout", () => {
     const agents = byLoaded(files, join(home, ".claude/AGENTS.md"));
-    expect(agents.sourcePath).toBe(join(dotfiles.root, "dot_agents/AGENTS.md"));
-    expect(agents.repoRoot).toBe(dotfiles.root);
+    expect(agents.sourcePath).toBe(join(home, ".claude/AGENTS.md"));
+    expect(agents.repoRoot).toBeNull();
     expect(agents.scope).toBe("global");
-    expect(files.filter((file) => file.sourcePath === agents.sourcePath)).toHaveLength(1);
     expect(byLoaded(files, join(home, ".claude/rules/global.md")).repoRoot).toBeNull();
   });
 
@@ -103,10 +80,11 @@ describe("inventory", () => {
       scope: "repo",
       paths: null,
     });
-    const brief = files.filter((file) => file.loadedPath === join(home, ".claude/output-styles/plain.md"));
-    expect(brief.map((file) => [file.sourcePath, file.scope, file.paths, file.bullets.map((b) => b.text)])).toEqual([
-      [join(dotfiles.root, "dot_claude/output-styles/plain.md.tmpl"), "global", null, ["- Style rule."]],
-      [join(dotfiles.root, ".chezmoitemplates/core.md"), "global", null, ["- Answer in plain words."]],
+    const plain = byLoaded(files, join(home, ".claude/output-styles/plain.md"));
+    expect([plain.scope, plain.paths, plain.bullets.map((b) => b.text)]).toEqual([
+      "global",
+      null,
+      ["- Answer in plain words."],
     ]);
   });
 

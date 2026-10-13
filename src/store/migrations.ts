@@ -95,4 +95,5 @@ export const MIGRATIONS: readonly string[] = [
     instructions TEXT NOT NULL
   );`,
   `ALTER TABLE debriefs ADD COLUMN answer TEXT;`,
+  `ALTER TABLE notes ADD COLUMN loaded_rules_json TEXT NOT NULL DEFAULT '[]';`,
 ];

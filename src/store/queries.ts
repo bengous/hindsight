@@ -30,6 +30,7 @@ export type NoteRow = {
   readonly evidence_id: string;
   readonly lesson: string;
   readonly body_json: string;
+  readonly loaded_rules_json: string;
 };
 
 export type Change =
@@ -163,10 +164,11 @@ export function insertNote(
     evidenceId: string;
     lesson: string;
     body: unknown;
+    loadedRules: readonly string[];
   },
 ): void {
   db.run(
-    "INSERT INTO notes (id, debrief_id, session_id, repo_root, at, kind, status, evidence_id, lesson, body_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO notes (id, debrief_id, session_id, repo_root, at, kind, status, evidence_id, lesson, body_json, loaded_rules_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     [
       row.id,
       row.debriefId,
@@ -178,6 +180,7 @@ export function insertNote(
       row.evidenceId,
       row.lesson,
       JSON.stringify(row.body),
+      JSON.stringify(row.loadedRules),
     ],
   );
 }
@@ -248,5 +251,98 @@ export function countDebriefsSince(db: SyncStore, sinceIso: string): number {
     db.get<{ n: number }>("SELECT COUNT(*) AS n FROM debriefs WHERE started_at >= ? AND status <> 'aborted'", [
       sinceIso,
     ])?.n ?? 0
+  );
+}
+
+export function pendingNotes(db: SyncStore, sinceIso: string): NoteRow[] {
+  return db.all<NoteRow>("SELECT * FROM notes WHERE status = 'pending' AND at >= ? ORDER BY at", [sinceIso]);
+}
+
+export function expireNotes(db: SyncStore, beforeIso: string): number {
+  return db.run("UPDATE notes SET status = 'expired' WHERE status = 'pending' AND at < ?", [beforeIso]);
+}
+
+export function markNotesUsed(db: SyncStore, ids: readonly string[]): void {
+  for (const id of ids) db.run("UPDATE notes SET status = 'used' WHERE id = ?", [id]);
+}
+
+export type HistoryEntry = {
+  readonly fingerprint: string;
+  readonly decision: string;
+  readonly reason: string | null;
+  readonly sessionsAtDecision: number;
+  readonly lessonEn: string;
+  readonly targetPath: string;
+};
+
+export function ledgerHistory(db: SyncStore): HistoryEntry[] {
+  return db
+    .all<{
+      fingerprint: string;
+      decision: string;
+      reason: string | null;
+      sessions_at_decision: number;
+      lesson_en: string;
+      target_path: string;
+    }>(
+      `SELECT d.fingerprint, d.decision, d.reason, d.sessions_at_decision, p.lesson_en, p.target_path
+       FROM decisions d JOIN proposals p ON p.id = d.proposal_id ORDER BY d.at`,
+    )
+    .map((row) => ({
+      fingerprint: row.fingerprint,
+      decision: row.decision,
+      reason: row.reason,
+      sessionsAtDecision: row.sessions_at_decision,
+      lessonEn: row.lesson_en,
+      targetPath: row.target_path,
+    }));
+}
+
+export function pendingFingerprints(db: SyncStore): Set<string> {
+  return new Set(
+    db
+      .all<{ fingerprint: string }>("SELECT fingerprint FROM proposals WHERE state = 'pending'")
+      .map((r) => r.fingerprint),
+  );
+}
+
+/** Takes the single running slot, or returns null when a run already holds it. */
+export function reserveLearnRun(db: SyncStore, id: string, at: string): string | null {
+  const running = db.get<{ id: string }>("SELECT id FROM learn_runs WHERE status = 'running'");
+  if (running !== null) return null;
+  db.run("INSERT INTO learn_runs (id, started_at, status) VALUES (?, ?, 'running')", [id, at]);
+  return id;
+}
+
+export function finishLearnRun(
+  db: SyncStore,
+  row: {
+    id: string;
+    at: string;
+    status: "complete" | "failed";
+    notesRead: number;
+    proposalsWritten: number;
+    costUsd: number;
+    failure: string | null;
+  },
+): void {
+  db.run(
+    "UPDATE learn_runs SET finished_at = ?, status = ?, notes_read = ?, proposals_written = ?, cost_usd = ?, failure = ? WHERE id = ?",
+    [row.at, row.status, row.notesRead, row.proposalsWritten, row.costUsd, row.failure, row.id],
+  );
+}
+
+export function lastLearnFinishedAt(db: SyncStore): string | null {
+  return (
+    db.get<{ at: string | null }>("SELECT MAX(finished_at) AS at FROM learn_runs WHERE status <> 'running'")?.at ?? null
+  );
+}
+
+/** A run left `running` by a dead process reads failed after `staleMs`. */
+export function failStaleLearnRuns(db: SyncStore, nowIso: string, staleMs: number): number {
+  const cutoff = new Date(new Date(nowIso).getTime() - staleMs).toISOString();
+  return db.run(
+    "UPDATE learn_runs SET status = 'failed', finished_at = ?, failure = 'stale' WHERE status = 'running' AND started_at < ?",
+    [nowIso, cutoff],
   );
 }

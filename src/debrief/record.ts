@@ -128,6 +128,7 @@ function resolveRuleFile(note: StaleRuleNote, session: SessionRecord): string {
 
 type Context = {
   readonly db: SyncStore;
+  readonly loadedRules: readonly string[];
   readonly deps: RecordDeps;
   readonly config: HindsightConfig;
   readonly session: SessionRecord;
@@ -168,6 +169,7 @@ function storeSteer(
     evidenceId,
     lesson: note.lesson,
     body: { quote: note.quote, habit: note.habit },
+    loadedRules: ctx.loadedRules,
   });
   return true;
 }
@@ -189,6 +191,7 @@ function storeObservation(ctx: Context, note: ObservationNote, tools: readonly T
     evidenceId: `${tool.sessionId}:${tool.uuid}`,
     lesson: note.lesson,
     body: { question: note.question, tool: note.tool, excerpt: note.excerpt, rulePath: note.rulePath },
+    loadedRules: ctx.loadedRules,
   });
   return true;
 }
@@ -238,6 +241,7 @@ function storeStaleRule(
       oldText: note.oldText,
       newText: note.newText,
     },
+    loadedRules: ctx.loadedRules,
   });
   if (pendingProposalByFingerprint(ctx.db, print) !== null) return { note: true, proposal: false };
   const evidence: Evidence[] = [
@@ -333,7 +337,16 @@ export function recordDebrief(
   if (session === null) return fail("session-not-found");
   const parsed = parseDebrief(input.text);
   if (!parsed.ok) return fail(`parse:${parsed.reason}:${parsed.detail}`);
-  const ctx: Context = { db, deps, config, session, input, at, rejections };
+  const ctx: Context = {
+    db,
+    deps,
+    config,
+    session,
+    input,
+    at,
+    rejections,
+    loadedRules: session.loadedRules.map((rule) => rule.path),
+  };
   const { proposals, ...notes } = storeNotes(ctx, parsed.notes);
   finishDebrief(db, {
     id: input.id,

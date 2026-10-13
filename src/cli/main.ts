@@ -4,6 +4,7 @@ import { Command, Flag } from "effect/cli";
 import { AppConfig, appLayer, printJson } from "./app.ts";
 import { debrief } from "./debrief.ts";
 import { gate } from "./gate.ts";
+import { learnCommand, pruneCommand } from "./learn.ts";
 import { status } from "./status.ts";
 
 const config = Command.make(
@@ -22,7 +23,7 @@ const hindsight = Command.make("hindsight").pipe(
     ),
   }),
   Command.withDescription("Out-of-band upkeep of the Rule Files your agents load"),
-  Command.withSubcommands([config, debrief, gate, status]),
+  Command.withSubcommands([config, debrief, gate, learnCommand, pruneCommand, status]),
 );
 
 hindsight.pipe(

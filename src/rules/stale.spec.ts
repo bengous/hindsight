@@ -1,8 +1,7 @@
-import type { RuleFile, StaleFinding } from "../types.ts";
+import type { RuleFile, StaleFinding } from "./types.ts";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tempDir, tempRepo } from "../../fixtures/rules/repo.ts";
-import { identityResolver } from "./chezmoi.ts";
 import { inventory } from "./inventory.ts";
 import { staleScan } from "./stale.ts";
 
@@ -37,7 +36,7 @@ let files: readonly RuleFile[] = [];
 let findings: readonly StaleFinding[] = [];
 
 beforeAll(async () => {
-  files = await inventory([repo.root], { home, resolveSource: identityResolver() });
+  files = await inventory([repo.root], { home });
   findings = await staleScan(files);
 });
 

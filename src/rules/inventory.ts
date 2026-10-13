@@ -1,19 +1,16 @@
-import type { RuleFile, RuleScope } from "../types.ts";
+import type { RuleFile, RuleScope } from "./types.ts";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
-import { defaultResolver, type SourceResolver } from "./chezmoi.ts";
 import { gitToplevel, hashObject, listFiles } from "./git.ts";
 import { frontmatterPaths, importTargets, ruleBullets } from "./markdown.ts";
 
 export type InventoryEnv = {
   readonly home: string;
-  readonly resolveSource: SourceResolver;
 };
 
 export function defaultInventoryEnv(): InventoryEnv {
-  const home = homedir();
-  return { home, resolveSource: defaultResolver(home) };
+  return { home: homedir() };
 }
 
 const MAX_IMPORT_HOPS = 4;
@@ -107,32 +104,21 @@ async function withImports(candidates: readonly Candidate[], home: string): Prom
   return all;
 }
 
-/** One rule file per file to edit: a template and the files it pulls in all answer for the same loaded path. */
-async function toRuleFiles(
-  candidate: Candidate,
-  repoHint: string | null,
-  env: InventoryEnv,
-): Promise<readonly RuleFile[]> {
+/** The file the agents load is the file hindsight edits; a global file outside any checkout has no repoRoot. */
+async function toRuleFile(candidate: Candidate, repoHint: string | null, env: InventoryEnv): Promise<RuleFile> {
   const inRepo = repoHint !== null && isInside(repoHint, candidate.loadedPath);
-  const sources = inRepo ? [candidate.loadedPath] : await env.resolveSource(candidate.loadedPath);
-  const idPrefix = idPrefixFor(candidate.loadedPath, inRepo ? repoHint : null, env.home);
-  return Promise.all(
-    sources.map(async (source): Promise<RuleFile> => {
-      const sourcePath = realpathSync(source);
-      const repoRoot =
-        repoHint !== null && isInside(repoHint, sourcePath) ? repoHint : await gitToplevel(dirname(sourcePath));
-      const text = await Bun.file(sourcePath).text();
-      return {
-        loadedPath: candidate.loadedPath,
-        sourcePath,
-        repoRoot,
-        scope: candidate.scope,
-        blobHash: await hashObject(sourcePath, dirname(sourcePath)),
-        paths: frontmatterPaths(text) ?? candidate.impliedPaths,
-        bullets: ruleBullets(text, idPrefix),
-      };
-    }),
-  );
+  const sourcePath = realpathSync(candidate.loadedPath);
+  const repoRoot = inRepo ? repoHint : await gitToplevel(dirname(sourcePath));
+  const text = await Bun.file(sourcePath).text();
+  return {
+    loadedPath: candidate.loadedPath,
+    sourcePath,
+    repoRoot,
+    scope: candidate.scope,
+    blobHash: await hashObject(sourcePath, dirname(sourcePath)),
+    paths: frontmatterPaths(text) ?? candidate.impliedPaths,
+    bullets: ruleBullets(text, idPrefixFor(candidate.loadedPath, inRepo ? repoHint : null, env.home)),
+  };
 }
 
 async function checkoutRoot(repoRoot: string): Promise<string> {
@@ -157,12 +143,12 @@ export async function inventory(
   };
 
   for (const candidate of await withImports(globalCandidates(env.home), env.home)) {
-    for (const file of await toRuleFiles(candidate, null, env)) add(file);
+    add(await toRuleFile(candidate, null, env));
   }
   for (const root of repoRoots) {
     const repoRoot = await checkoutRoot(root);
     for (const candidate of await withImports(repoCandidates(repoRoot, await listFiles(repoRoot)), env.home)) {
-      for (const file of await toRuleFiles(candidate, repoRoot, env)) add(file);
+      add(await toRuleFile(candidate, repoRoot, env));
     }
   }
   return files;
