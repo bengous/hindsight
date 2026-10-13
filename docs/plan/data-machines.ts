@@ -1,9 +1,17 @@
 import type { MState, MTransition, Machine } from "./model.ts";
 
+import { defaultConfig } from "../../src/domain/config.ts";
+
 // One machine per piece of state the code keeps. states: id, label, sub
 // (mono), lead (HTML), kind (initial | final | check | outcome), where (the
 // storage). transitions: from → to on event, by (human | model | code |
 // time), guard, desc (HTML), src. No self-loop: ELK draws none.
+const G = defaultConfig.gate;
+
+const L = defaultConfig.learn;
+
+const fr = (n: number): string => String(n).replace(".", ",");
+
 type Check = {
   readonly id: string;
   readonly label: string;
@@ -40,7 +48,7 @@ const GATE_CHECKS: readonly Check[] = [
   {
     id: "c3",
     label: "Fork en cours ?",
-    lead: "Un Debrief de cette session tourne encore, verrou de moins de quinze minutes.",
+    lead: "Un Debrief de cette session tourne encore, verrou plus jeune que FORK_STALE_MS.",
     skip: "oui : fork-running",
     skipBy: "code",
     skipDesc: "",
@@ -60,8 +68,8 @@ const GATE_CHECKS: readonly Check[] = [
   {
     id: "c5",
     label: "Plafond du jour ?",
-    sub: "dailyCap 20",
-    lead: "Vingt Debriefs aujourd'hui, toutes sessions confondues.",
+    sub: `dailyCap ${G.dailyCap}`,
+    lead: `${G.dailyCap} Debriefs aujourd'hui, toutes sessions confondues.`,
     skip: "oui : daily-cap",
     skipBy: "code",
     skipDesc: "Le plafond passe avant le refroidissement, contrairement à l'ordre de l'ADR 0005.",
@@ -71,8 +79,8 @@ const GATE_CHECKS: readonly Check[] = [
   {
     id: "c6",
     label: "Refroidissement ?",
-    sub: "90 s × min(n, 5)",
-    lead: "Trop tôt après la fin du dernier Debrief de la session : 90 s, puis 180, jusqu'à 450.",
+    sub: `${G.cooldownMs / 1000} s × min(n, ${G.cooldownMaxSteps})`,
+    lead: `Trop tôt après la fin du dernier Debrief de la session : cooldownMs × le nombre de Debriefs, plafonné à ${G.cooldownMaxSteps}.`,
     skip: "oui : cooldown",
     skipBy: "time",
     skipDesc: "",
@@ -82,8 +90,8 @@ const GATE_CHECKS: readonly Check[] = [
   {
     id: "c7",
     label: "Tour calme ?",
-    sub: "0 message, < 3 outils",
-    lead: "Aucun message humain depuis le dernier Debrief et moins de trois appels d'outil.",
+    sub: `0 message, < ${G.quietMinTools} outils`,
+    lead: `Aucun message humain depuis le dernier Debrief et moins de ${G.quietMinTools} appels d'outil.`,
     skip: "oui : quiet",
     skipBy: "code",
     skipDesc: "",
@@ -93,7 +101,7 @@ const GATE_CHECKS: readonly Check[] = [
   {
     id: "c8",
     label: "Score ≥ seuil ?",
-    sub: "seuil 1,0",
+    sub: `seuil ${fr(G.threshold)}`,
     lead: "Les sept signaux pesés. Un signal fort seul, ou deux faibles, suffisent.",
     skip: "non : below-threshold",
     skipBy: "code",
@@ -208,7 +216,7 @@ function gateMachine(): Machine {
     facts: [
       ["Poids 1", "human_marker · tool_refused · after_interrupt · rule_file_edit"],
       ["Poids 0,5", "many_edits (≥ 3) · tool_errors (≥ 2) · git_commit"],
-      ["Refroidissement", "90 s × min(Debriefs de la session, 5)"],
+      ["Refroidissement", `cooldownMs ${G.cooldownMs} × min(Debriefs de la session, ${G.cooldownMaxSteps})`],
     ],
     states,
     transitions,
@@ -227,7 +235,7 @@ export const MACHINES: readonly Machine[] = [
     initial: "candidate",
     direction: "RIGHT",
     facts: [
-      ["Tri de la Review", "prevalence.sessions décroissant, puis created_at croissant, trois par passe"],
+      ["Tri de la Review", "prevalence.sessions décroissant, puis created_at croissant, review.pageSize par passe"],
       ["Clé de remplacement", "target_path + bullet_id, ou le premier oldText, ou l'id"],
     ],
     states: [
@@ -400,7 +408,7 @@ export const MACHINES: readonly Machine[] = [
     id: "m-note",
     title: "Note",
     tag: "notes.status · src/debrief/record.ts · src/learn/run.ts",
-    lead: "Une Note naît de la vérification d'une réponse de Debrief. Ce qui échoue est compté sur la ligne du Debrief, jamais stocké. Une Note en attente va au modèle à chaque passage de Learn jusqu'à ce qu'une Proposal gardée la cite, ou qu'elle ait trente jours.",
+    lead: `Une Note naît de la vérification d'une réponse de Debrief. Ce qui échoue est compté sur la ligne du Debrief, jamais stocké. Une Note en attente va au modèle à chaque passage de Learn jusqu'à ce qu'une Proposal gardée la cite, ou qu'elle ait ${defaultConfig.notes.windowDays} jours.`,
     store:
       "colonne <code>status</code> de la table <code>notes</code> ; les rejets dans <code>debriefs.rejected_json</code>",
     initial: "answer",
@@ -431,7 +439,7 @@ export const MACHINES: readonly Machine[] = [
       {
         id: "expired",
         label: "expired",
-        sub: "30 jours",
+        sub: `${defaultConfig.notes.windowDays} jours`,
         kind: "final",
         lead: "Rien ne l'a utilisée dans la fenêtre. L'expiration tourne au début de chaque passage de Learn, même un passage <code>--if-due</code> qui saute ensuite.",
         where: "notes.status = 'expired'",
@@ -499,7 +507,7 @@ export const MACHINES: readonly Machine[] = [
         id: "n-expire",
         from: "pending",
         to: "expired",
-        event: "plus vieille que 30 jours",
+        event: `plus vieille que ${defaultConfig.notes.windowDays} jours`,
         by: "time",
         guard: "notes.windowDays",
         desc: "Au début de chaque invocation de <code>learn</code>, dans la transaction de réservation.",
@@ -518,8 +526,8 @@ export const MACHINES: readonly Machine[] = [
     initial: "open",
     direction: "RIGHT",
     facts: [
-      ["Plancher", "gate.minCacheShare 0,9"],
-      ["Délais", "debrief start 30 s · debrief record 120 s · aucun délai sur le fork"],
+      ["Plancher", `gate.minCacheShare ${fr(G.minCacheShare)}`],
+      ["Délais", "debrief start et debrief record ont chacun le leur dans cli-client.ts ; aucun délai sur le fork"],
     ],
     states: [
       {
@@ -555,9 +563,9 @@ export const MACHINES: readonly Machine[] = [
       {
         id: "aborted",
         label: "aborted",
-        sub: "status après 15 min",
+        sub: "status après ABORT_AFTER_MS",
         kind: "final",
-        lead: "Un fork perdu (rechargement, session fermée) laisse la ligne <code>started</code> ; seule la commande <code>status</code> la passe en <code>aborted</code> après un quart d'heure.",
+        lead: "Un fork perdu (rechargement, session fermée) laisse la ligne <code>started</code> ; seule la commande <code>status</code> la passe en <code>aborted</code> une fois ABORT_AFTER_MS écoulé.",
         where: "queries.ts abortStaleDebriefs",
       },
     ],
@@ -577,7 +585,7 @@ export const MACHINES: readonly Machine[] = [
         to: "recorded",
         event: "record : plancher, session, JSON",
         by: "code",
-        guard: "cacheShare ≥ 0,9, transcript trouvé, parseDebrief ok",
+        guard: `cacheShare ≥ ${fr(G.minCacheShare)}, transcript trouvé, parseDebrief ok`,
         desc: "Puis chaque Note est vérifiée contre le transcript ; le compte des Notes en attente peut déclencher Learn.",
         src: "src/debrief/record.ts · recordDebrief",
       },
@@ -587,7 +595,7 @@ export const MACHINES: readonly Machine[] = [
         to: "failed",
         event: "cache:<part>",
         by: "code",
-        guard: "cacheShare < 0,9, vérifié en premier",
+        guard: `cacheShare < ${fr(G.minCacheShare)}, vérifié en premier`,
         desc: "Un fork sans réponse arrive ici avec une part de 0 : <code>cache:0.00</code>, la vraie cause (api-error, empty-reply, aborted, nothing-to-fork) ne vit que dans le texte stocké.",
         src: "src/debrief/record.ts · recordDebrief (cache) · src/mod/debrief.ts · runDebrief",
       },
@@ -613,7 +621,7 @@ export const MACHINES: readonly Machine[] = [
         id: "d-abort",
         from: "started",
         to: "aborted",
-        event: "status, 15 min plus tard",
+        event: "status, ABORT_AFTER_MS plus tard",
         by: "time",
         desc: "Un <code>debrief record</code> qui arriverait ensuite lève « already aborted » et le mod affiche « Debrief impossible ».",
         src: "src/store/queries.ts · abortStaleDebriefs · src/cli/status.ts",
@@ -626,13 +634,13 @@ export const MACHINES: readonly Machine[] = [
     id: "m-lock",
     title: "Verrou de fork",
     tag: "$.store session:<id> · src/mod/state.ts · src/mod/gate.ts",
-    lead: "Un seul Debrief à la fois par session. Le verrou se prend avant le classifieur et se rend à chaque sortie ; un verrou de plus de quinze minutes se lit comme libre. À la fin d'un Debrief, les faits repartent de ce qui est arrivé pendant le fork.",
+    lead: "Un seul Debrief à la fois par session. Le verrou se prend avant le classifieur et se rend à chaque sortie ; un verrou plus vieux que FORK_STALE_MS se lit comme libre. À la fin d'un Debrief, les faits repartent de ce qui est arrivé pendant le fork.",
     store:
       "<code>forkRunning</code> et <code>forkStartedAt</code> dans <code>session:&lt;id&gt;</code> du store du mod, avec les faits, lastDebriefAt et debriefsInSession",
     initial: "free",
     direction: "RIGHT",
     facts: [
-      ["FORK_STALE_MS", "15 min, le même délai que abortStaleDebriefs côté CLI"],
+      ["FORK_STALE_MS", "src/mod/state.ts, le même délai que ABORT_AFTER_MS côté CLI"],
       ["Compteurs", "debriefsInSession compte recorded et failed, pas aborted ; day:<jour> aussi"],
     ],
     states: [
@@ -654,7 +662,7 @@ export const MACHINES: readonly Machine[] = [
       {
         id: "stale",
         label: "périmé",
-        sub: "> 15 min",
+        sub: "> FORK_STALE_MS",
         lead: "Le fork n'a jamais rendu la main : rechargement, session coupée. readState le lit comme libre et la prochaine écriture le persiste.",
         where: "state.ts readState",
       },
@@ -710,7 +718,7 @@ export const MACHINES: readonly Machine[] = [
         id: "l-stale",
         from: "held",
         to: "stale",
-        event: "15 min sans fin",
+        event: "FORK_STALE_MS sans fin",
         by: "time",
         desc: "",
         src: "src/mod/state.ts · FORK_STALE_MS, readState",
@@ -731,14 +739,17 @@ export const MACHINES: readonly Machine[] = [
     id: "m-learn",
     title: "Passage de Learn",
     tag: "learn_runs.status · src/learn/run.ts",
-    lead: "Un passage à la fois. <code>debrief record</code> en lance un, détaché, dès que huit Notes attendent ; <code>/hindsight learn</code> en force un sans <code>--if-due</code>. La réservation expire les Notes, vérifie l'échéance et prend le verrou dans une seule transaction.",
+    lead: "Un passage à la fois. <code>debrief record</code> en lance un, détaché, dès que learn.pendingNotes Notes attendent ; <code>/hindsight learn</code> en force un sans <code>--if-due</code>. La réservation expire les Notes, vérifie l'échéance et prend le verrou dans une seule transaction.",
     store:
       "colonne <code>status</code> de la table <code>learn_runs</code> ; la ligne <code>running</code> est le verrou ; cost_usd et failure sur la ligne",
     initial: "trigger",
     direction: "RIGHT",
     facts: [
-      ["Échéance", "pendingNotes 8 · minIntervalMs 6 h depuis le dernier passage complet"],
-      ["Budget", "maxBudgetUsd 2 par passage, 0,02 minimum par appel"],
+      [
+        "Échéance",
+        `pendingNotes ${L.pendingNotes} · minIntervalMs ${L.minIntervalMs / 3_600_000} h depuis le dernier passage complet`,
+      ],
+      ["Budget", `maxBudgetUsd ${L.maxBudgetUsd} par passage, MIN_CALL_USD par appel`],
     ],
     states: [
       {
@@ -784,7 +795,7 @@ export const MACHINES: readonly Machine[] = [
         to: "skipped",
         event: "--if-due : pas encore",
         by: "code",
-        guard: "moins de 8 Notes dans la fenêtre, ou moins de 6 h depuis le dernier passage complet",
+        guard: `moins de ${L.pendingNotes} Notes dans la fenêtre, ou moins de ${L.minIntervalMs / 3_600_000} h depuis le dernier passage complet`,
         desc: "pending-notes:<n> ou interval.",
         src: "src/learn/run.ts · reserve (--if-due)",
       },
@@ -822,7 +833,7 @@ export const MACHINES: readonly Machine[] = [
         to: "failed",
         event: "échecs sans Proposal",
         by: "model",
-        desc: "timeout (SIGKILL à 15 min), exit, unparsable-stdout, no-result, result-error, missing-output, ou un id inconnu qui rejette tout le groupe.",
+        desc: "timeout (SIGKILL à learn.timeoutMs), exit, unparsable-stdout, no-result, result-error, missing-output, ou un id inconnu qui rejette tout le groupe.",
         src: "src/learn/claude.ts · ModelError · src/learn/run.ts · learn (un groupe)",
       },
       {
@@ -838,9 +849,9 @@ export const MACHINES: readonly Machine[] = [
         id: "r-stale",
         from: "running",
         to: "failed",
-        event: "2 h sans fin, au passage suivant",
+        event: "STALE_RUN_MS sans fin, au passage suivant",
         by: "time",
-        desc: "failure = stale. Un processus mort bloque donc Learn deux heures au plus.",
+        desc: "failure = stale. Un processus mort bloque donc Learn ce délai au plus.",
         src: "src/store/queries.ts · failStaleLearnRuns",
       },
     ],
@@ -921,7 +932,7 @@ export const MACHINES: readonly Machine[] = [
     store: "<code>review = {items, index, mode, expanded, notice, pending}</code> dans register.ts, jamais sur disque",
     initial: "closed",
     direction: "RIGHT",
-    facts: [["Délai", "review decide : 10 min"]],
+    facts: [["Délai", "review decide : DECIDE_TIMEOUT_MS dans register.ts"]],
     states: [
       {
         id: "closed",

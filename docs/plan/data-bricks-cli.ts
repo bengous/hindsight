@@ -1,8 +1,11 @@
 import type { Brick } from "./model.ts";
 
+import { defaultConfig } from "../../src/domain/config.ts";
 import { brickAdder } from "./model.ts";
 
 export const bricksCli: Brick[] = [];
+
+const L = defaultConfig.learn;
 
 const add = brickAdder(bricksCli);
 
@@ -99,12 +102,17 @@ add(
   {
     kicker: "src/gate/replay.ts",
     title: "Le rejeu du Portail",
-    lead: "Rejoue le code du Portail sur vos transcripts des N derniers jours, sans modèle : tours reconstruits, sauts, histogramme des scores, part de tours qui passent, briefs d'exemple. C'est ce rejeu qui a déplacé le seuil de 0,35 à 1,0.",
+    lead: "Rejoue le code du Portail sur vos transcripts des N derniers jours, sans modèle : tours reconstruits, sauts, histogramme des scores, part de tours qui passent, briefs d'exemple. C'est ce rejeu qui calibre le seuil.",
     io: [
       ["Reçoit", "le dossier des projets, le nombre de jours, la configuration"],
       ["Produit", "files, sessions, turns, passed, sessionsWithPass, skipped, scoreHistogram, sampleBriefs"],
     ],
-    facts: [["Chiffres", "679 sessions, 3 877 tours, 12 % de tours qui passent le code au seuil 1,0"]],
+    facts: [
+      [
+        "Mesure",
+        "hindsight gate replay --days 30 : sessions, tours, part qui passe le code, histogramme des scores, briefs d'exemple ; le résultat de chaque calibrage est un enregistrement de session sous plans/",
+      ],
+    ],
     warn: "Le rejeu diverge du mod : les marqueurs sont posés sur des faits vides à chaque tour (turnsOf), donc correction_medium et user_rejected ne s'allument jamais ici (vérifié par script) ; le dépôt exclu se compare au cwd et non à la racine git ; les continuations ne sont pas suivies ; aucun classifieur ne tourne.",
     see: ["gaterules", "reader"],
   },
@@ -119,7 +127,7 @@ add(
   {
     kicker: "src/learn/run.ts · src/learn/claude.ts · src/cli/learn.ts",
     title: "Learn",
-    lead: "Un passage : réserver (échouer les passages périmés, expirer les Notes de plus de 30 jours, vérifier <code>--if-due</code>, prendre le verrou), lire les Notes en attente et le Ledger, inventorier les Rule Files, former un groupe par dépôt plus un groupe global quand deux dépôts se croisent, un appel <code>claude -p</code> par groupe sous budget, passer les candidats aux portes, insérer les Proposals, marquer les Notes utilisées, puis Prune.",
+    lead: "Un passage : réserver (échouer les passages périmés, expirer les Notes plus vieilles que notes.windowDays, vérifier <code>--if-due</code>, prendre le verrou), lire les Notes en attente et le Ledger, inventorier les Rule Files, former un groupe par dépôt plus un groupe global quand deux dépôts se croisent, un appel <code>claude -p</code> par groupe sous budget, passer les candidats aux portes, insérer les Proposals, marquer les Notes utilisées, puis Prune.",
     io: [
       ["Reçoit", "les Notes pending de la fenêtre, les Rule Files, les Loaded Rules des sessions, le Ledger"],
       [
@@ -132,10 +140,13 @@ add(
         "Appel",
         'claude --print --safe-mode --no-session-persistence --model opus --effort high --tools "" --strict-mcp-config --permission-mode dontAsk --output-format json --json-schema … --max-budget-usd …',
       ],
-      ["Bornes", "2 $ par passage, 0,02 $ minimum par appel, 15 min par appel, SIGKILL ensuite"],
-      ["Verrou", "une seule ligne running ; périmée après 2 h"],
+      [
+        "Bornes",
+        `maxBudgetUsd ${L.maxBudgetUsd} par passage, MIN_CALL_USD par appel, timeoutMs ${L.timeoutMs / 60_000} min par appel, SIGKILL ensuite`,
+      ],
+      ["Verrou", "une seule ligne running ; périmée après STALE_RUN_MS"],
     ],
-    warn: "Un processus mort bloque Learn jusqu'à deux heures. Le rapport dit <code>failed</code> seulement quand aucun groupe n'a produit de Proposal.",
+    warn: "Un processus mort bloque Learn jusqu'à STALE_RUN_MS. Le rapport dit <code>failed</code> seulement quand aucun groupe n'a produit de Proposal.",
     see: ["learncontract", "claudep", "prune"],
   },
   { ...CLI, couples: ["learncontract", "claudep", "queries", "prune", "inventory", "humantext"] },
@@ -288,7 +299,7 @@ add(
       ["Reçoit", "rien"],
       ["Produit", "StatusReport ; {ok, checks}"],
     ],
-    warn: "<code>status</code> écrit : il passe en <code>aborted</code> toute ligne <code>started</code> de plus de 15 minutes. Rien d'autre ne le fait, et un fork plus long qu'un quart d'heure perd son enregistrement si status tourne entre-temps.",
+    warn: "<code>status</code> écrit : il passe en <code>aborted</code> toute ligne <code>started</code> plus vieille que ABORT_AFTER_MS. Rien d'autre ne le fait, et un fork plus long que cela perd son enregistrement si status tourne entre-temps.",
     see: ["notice"],
   },
   { ...CLI, couples: ["notice", "queries"] },
@@ -371,7 +382,7 @@ add(
     ],
     facts: [
       ["Verrou de Learn", "une seule ligne running ; failStaleLearnRuns après 2 h"],
-      ["Debrief perdu", "abortStaleDebriefs après 15 min, appelé par status seulement"],
+      ["Debrief perdu", "abortStaleDebriefs après ABORT_AFTER_MS, appelé par status seulement"],
     ],
     warn: "Le SQL brut de status.ts, port.ts et prune.ts doit changer avec le schéma ; <code>countDebriefsSince</code> n'a aucun appelant.",
     see: ["migrations", "db"],

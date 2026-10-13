@@ -1,5 +1,6 @@
 import type { Brick } from "./model.ts";
 
+import { defaultConfig } from "../../src/domain/config.ts";
 import { brickAdder } from "./model.ts";
 
 // add(zone, id, label, sub, info, options)
@@ -11,6 +12,12 @@ import { brickAdder } from "./model.ts";
 //            ("in" left, "out" right); couples: ids of bricks that must
 //            change when this one is replaced, listed on one side only.
 export const bricks: Brick[] = [];
+
+const G = defaultConfig.gate;
+
+const L = defaultConfig.learn;
+
+const fr = (n: number): string => String(n).replace(".", ",");
 
 const add = brickAdder(bricks);
 
@@ -70,9 +77,15 @@ add(
       ["Défauts", "src/domain/config.ts"],
     ],
     facts: [
-      ["Portail", "threshold 1 · cooldownMs 90 000 × min(n, 5) · quietMinTools 3 · dailyCap 20 · minCacheShare 0,9"],
-      ["Learn", "pendingNotes 8 · minIntervalMs 6 h · model opus · maxBudgetUsd 2 · timeoutMs 15 min"],
-      ["Notes, Review", "windowDays 30 · pageSize 3"],
+      [
+        "Portail",
+        `threshold ${fr(G.threshold)} · cooldownMs ${G.cooldownMs} × min(n, ${G.cooldownMaxSteps}) · quietMinTools ${G.quietMinTools} · dailyCap ${G.dailyCap} · minCacheShare ${fr(G.minCacheShare)}`,
+      ],
+      [
+        "Learn",
+        `pendingNotes ${L.pendingNotes} · minIntervalMs ${L.minIntervalMs / 3_600_000} h · model ${L.model} · maxBudgetUsd ${L.maxBudgetUsd} · timeoutMs ${L.timeoutMs / 60_000} min`,
+      ],
+      ["Notes, Review", `windowDays ${defaultConfig.notes.windowDays} · pageSize ${defaultConfig.review.pageSize}`],
     ],
     see: ["configrules"],
   },
@@ -182,7 +195,7 @@ add(
       ["Poids 0,5", "many_edits (≥ 3) · tool_errors (≥ 2) · git_commit"],
     ],
     why: [
-      "Le rejeu de 30 jours a déplacé le seuil de 0,35 à 1,0 : un signal fort seul, ou deux faibles, atteignent le classifieur (ADR 0005).",
+      "Le rejeu sur vos transcripts calibre le seuil : un signal fort seul, ou deux faibles, atteignent le classifieur (ADR 0005). La valeur courante est dans src/domain/config.ts, chaque réglage dans plans/.",
     ],
   },
   { ...DOMAIN, couples: ["gate", "replay"] },

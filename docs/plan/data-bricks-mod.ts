@@ -115,17 +115,17 @@ add(
   "mod",
   "state",
   "state.ts",
-  "session:<id> · day:<jour> · verrou 15 min",
+  "session:<id> · day:<jour> · verrou FORK_STALE_MS",
   {
     kicker: "src/mod/state.ts",
     title: "L'état de session",
-    lead: "Ce que le mod garde dans <code>$.store</code> : par session, les TurnFacts depuis le dernier Debrief, l'heure de fin du dernier, leur nombre, le verrou de fork et son heure ; par jour UTC, le compte des Debriefs. Un verrou plus vieux que quinze minutes se lit comme libre.",
+    lead: "Ce que le mod garde dans <code>$.store</code> : par session, les TurnFacts depuis le dernier Debrief, l'heure de fin du dernier, leur nombre, le verrou de fork et son heure ; par jour UTC, le compte des Debriefs. Un verrou plus vieux que FORK_STALE_MS se lit comme libre.",
     io: [
       ["Reçoit", "readState, writeState, setFork, factsSince, countDebriefToday"],
       ["Produit", "un SessionState, le compte du jour"],
     ],
     facts: [
-      ["FORK_STALE_MS", "15 min"],
+      ["FORK_STALE_MS", "src/mod/state.ts ; le même délai que ABORT_AFTER_MS côté CLI"],
       ["Nettoyage", "au démarrage : session:* inactives depuis 7 jours, day:* de plus de 2 jours"],
       [
         "Reset",
@@ -180,7 +180,10 @@ add(
     ],
     facts: [
       ["Part de cache", "cache_read / (cache_read + input + cache_creation)"],
-      ["Mesuré", "0,982 à 0,984 sur les sessions de calibrage, 4 à 13 s par Debrief"],
+      [
+        "Mesure",
+        "hindsight status : part de cache minimale et moyenne des Debriefs enregistrés, durée sur chaque ligne debriefs",
+      ],
     ],
     warn: "Un fork sans réponse (api-error, empty-reply, aborted, nothing-to-fork) est enregistré avec une part de cache 0 : la ligne finit <code>failed</code> avec <code>cache:0.00</code>, la vraie cause ne vit que dans le texte stocké, et la Notice la compte comme Debrief en erreur.",
     see: ["debriefprompt", "record"],

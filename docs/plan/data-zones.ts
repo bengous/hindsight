@@ -49,7 +49,10 @@ export const ZONES: readonly Zone[] = [
       ],
       facts: [
         ["Hooks", "session.start · prompt.submit · turn.complete · command.run · ui.render"],
-        ["Mesuré", "quatre forks détachés ont lu tout le préfixe depuis le cache (ADR 0004)"],
+        [
+          "Mesuré",
+          "des forks détachés ont lu tout le préfixe depuis le cache ; hindsight status donne la part de cache des Debriefs (ADR 0004)",
+        ],
       ],
       warn: "Un <code>session.compact</code> pendant un Debrief n'est pas couvert : le plan le nomme comme risque, pas comme garantie.",
       see: ["mod", "transcripts"],

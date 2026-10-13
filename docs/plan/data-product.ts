@@ -1,5 +1,13 @@
 import type { Flow } from "./model.ts";
 
+import { defaultConfig } from "../../src/domain/config.ts";
+
+const G = defaultConfig.gate;
+
+const L = defaultConfig.learn;
+
+const fr = (n: number): string => String(n).replace(".", ",");
+
 export const FLOW: Flow = {
   nodes: [
     {
@@ -56,14 +64,14 @@ export const FLOW: Flow = {
       label: "Notes en attente",
       sub: "Steers, Observations",
       by: "code",
-      info: "Une Note attend que Learn ou Prune l'utilise, trente jours au plus. Une Stale Rule confirmée par le code devient tout de suite une Proposal.",
+      info: `Une Note attend que Learn l'utilise, ${defaultConfig.notes.windowDays} jours au plus. Une Stale Rule confirmée par le code devient tout de suite une Proposal.`,
     },
     {
       id: "learn",
       label: "Learn",
       sub: "Opus, un appel par dépôt",
       by: "model",
-      info: "Détaché par <code>debrief record</code> quand huit Notes attendent et six heures ont passé. Le modèle regroupe par Lesson, rédige et choisit une cible ; le code compte la Prevalence, valide la cible et filtre par le Ledger.",
+      info: `Détaché par <code>debrief record</code> quand ${L.pendingNotes} Notes attendent et ${L.minIntervalMs / 3_600_000} h ont passé. Le modèle regroupe par Lesson, rédige et choisit une cible ; le code compte la Prevalence, valide la cible et filtre par le Ledger.`,
     },
     {
       id: "prune",
@@ -84,7 +92,7 @@ export const FLOW: Flow = {
       label: "Review",
       sub: "le panneau, vous décidez",
       by: "human",
-      info: "<code>/hindsight review</code> ouvre le panneau : une Proposal par écran, trois par passe. Accepter, Modifier, Rejeter avec une raison, Handoff. Chaque Décision va au Ledger.",
+      info: "<code>/hindsight review</code> ouvre le panneau : une Proposal par écran, une passe de review.pageSize. Accepter, Modifier, Rejeter avec une raison, Handoff. Chaque Décision va au Ledger.",
     },
     {
       id: "commit",
@@ -110,7 +118,7 @@ export const FLOW: Flow = {
     { id: "e-fork", from: "classify", to: "fork", label: "debrief" },
     { id: "e-record", from: "fork", to: "record", label: "texte, part de cache" },
     { id: "e-notes", from: "record", to: "notes", label: "Notes retenues" },
-    { id: "e-learn", from: "notes", to: "learn", label: "8 Notes, 6 h" },
+    { id: "e-learn", from: "notes", to: "learn", label: `${L.pendingNotes} Notes, ${L.minIntervalMs / 3_600_000} h` },
     { id: "e-prune", from: "notes", to: "prune", label: "même passage", kind: "dash" },
     { id: "e-pl", from: "learn", to: "proposals", label: "" },
     { id: "e-pp", from: "prune", to: "proposals", label: "" },
@@ -132,7 +140,7 @@ export const FLOW: Flow = {
     {
       nodes: ["gate"],
       edges: ["e-gate"],
-      text: "<strong>Le code décide</strong> : aucun saut direct ne s'applique. Signaux : correction dans un message humain (1,0) et outil refusé (1,0). Score 2,0, au-dessus du seuil 1,0. La décision est journalisée.",
+      text: `<strong>Le code décide</strong> : aucun saut direct ne s'applique. Signaux : correction dans un message humain (1) et outil refusé (1). Score 2, au-dessus du seuil ${fr(G.threshold)}. La décision est journalisée.`,
     },
     {
       nodes: ["classify"],
@@ -157,7 +165,7 @@ export const FLOW: Flow = {
     {
       nodes: ["learn", "prune"],
       edges: ["e-learn", "e-prune"],
-      text: "Huit Notes attendent : <strong>Learn</strong> part hors bande, un appel Opus pour ce dépôt. Le code compte la Prevalence (3 sessions, 3 jours) et accepte le candidat ; <strong>Prune</strong> vérifie les Rule Files dans le même passage.",
+      text: `${L.pendingNotes} Notes attendent : <strong>Learn</strong> part hors bande, un appel Opus pour ce dépôt. Le code compte la Prevalence (3 sessions, 3 jours) et accepte le candidat ; <strong>Prune</strong> vérifie les Rule Files dans le même passage.`,
     },
     {
       nodes: ["proposals"],
