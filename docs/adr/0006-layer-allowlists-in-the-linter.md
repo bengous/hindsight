@@ -1,6 +1,6 @@
 # Layer allowlists in the linter, and one owner for the Proposal contract
 
-`src/` is a layered graph: a pure domain, adapters over it, features over the adapters, and the CLI as the composition root that nobody imports. Each folder has an allowlist of the folders it may import, and `bun run lint` holds it through `no-restricted-imports` overrides in `oxlint.config.ts`, one per folder. Specs are exempt: they import `bun:test` and `fixtures/` and cross the layers by construction.
+`src/` is a layered graph: a pure domain, adapters over it, features over the adapters, and the CLI as the composition root that nobody imports. Each folder has an allowlist of the folders it may import, and `bun run lint` holds it through `no-restricted-imports` overrides in `oxlint.config.ts`, one per folder. The `Bun` global needs no import, so `domain` and `mod` also carry `no-restricted-globals` on it: the mod loads them without Bun. Specs are exempt: they import `bun:test` and `fixtures/` and cross the layers by construction.
 
 | Folder | May import in `src/` | Note |
 |---|---|---|

@@ -13,7 +13,7 @@ Out-of-band upkeep of the Rule Files coding agents load. A Claude Code mod runs 
 - Evidence ids (`<sessionId>:<uuid>`) are minted by the code. A Quote must occur word for word in a Human Message of the session (the earliest is cited), an Observation must match a real tool entry by name and excerpt, a Stale Rule must match a real edit the file still holds; what fails is counted on the debrief row, never stored.
 - Prevalence is computed by the code, never by a model. A rejected fingerprint returns only with more sessions than at the rejection.
 - Transcript text stays in `$XDG_STATE_HOME/hindsight` (0700, database 0600). A commit message carries the subject, the lesson, the evidence counts and the proposal id, never a Quote; `applyChange` refuses a message that holds one.
-- `bun run lint` holds the layer boundaries: every folder of `src/` has an allowlist of imports in `oxlint.config.ts` (the map in docs/adr/0006), `src/domain/` imports only itself (no Node, Bun, npm or Effect module: the mod has no Node), `src/mod/` only `domain` and `claude-code`.
+- `bun run lint` holds the layer boundaries: every folder of `src/` has an allowlist of imports in `oxlint.config.ts` (the map in docs/adr/0006), `src/domain/` imports only itself (no Node, Bun, npm or Effect module: the mod has no Node), `src/mod/` only `domain` and `claude-code`; neither touches the `Bun` global.
 - `src/mod/register.ts` is the only file that touches `$`; every function that receives `$` sits at its top level; the rest of `src/mod` reads a `Host`.
 - Fixtures are synthetic. Never copy a real transcript line into the repo.
 

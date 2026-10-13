@@ -34,6 +34,14 @@ const layer = (allowed: readonly string[], message: string): DummyRuleMap => ({
 // Every bare specifier: node:, bun:, effect, any npm package.
 const NOT_LOCAL = String.raw`^[^.]`;
 
+// The Bun global needs no import: no-restricted-imports alone would let `Bun.spawn` into code the mod loads without Bun.
+const NO_BUN_GLOBAL: DummyRuleMap = {
+  "no-restricted-globals": [
+    "error",
+    { name: "Bun", message: "The mod loads this code without Bun: no Bun global here (AGENTS.md)." },
+  ],
+};
+
 const ANTI_SLOP_EFFECT_OFF = {
   "anti-slop-effect/no-manual-effect-error-tag": "off",
   "anti-slop-effect/no-manual-tag-comparison": "off",
@@ -263,6 +271,7 @@ export default defineConfig({
     {
       files: ["src/domain/**"],
       rules: {
+        ...NO_BUN_GLOBAL,
         "no-restricted-imports": [
           "error",
           {
@@ -277,6 +286,7 @@ export default defineConfig({
     {
       files: ["src/mod/**"],
       rules: {
+        ...NO_BUN_GLOBAL,
         "no-restricted-imports": [
           "error",
           {
