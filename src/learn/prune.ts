@@ -1,5 +1,6 @@
 import type { InventoryEnv } from "../rules/inventory.ts";
 import type { StaleFinding } from "../rules/types.ts";
+import type { StoreError } from "../store/db.ts";
 import type { ProposalInsert } from "../store/queries.ts";
 
 import { Effect } from "effect";
@@ -58,7 +59,11 @@ export function staleProposal(finding: StaleFinding, nowIso: string): ProposalIn
 }
 
 /** Prune's code checks over the repositories hindsight knows: dead globs, gone paths, missing scripts. */
-export const prune = (repoRoots: readonly string[], env: InventoryEnv, nowIso: string = new Date().toISOString()) =>
+export const prune = (
+  repoRoots: readonly string[],
+  env: InventoryEnv,
+  nowIso: string = new Date().toISOString(),
+): Effect.Effect<PruneReport, StoreError, Store> =>
   Effect.gen(function* () {
     const store = yield* Store;
     const roots = [...new Set(repoRoots)].filter((root) => existsSync(root));

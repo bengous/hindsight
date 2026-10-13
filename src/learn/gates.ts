@@ -1,20 +1,18 @@
-import type { RuleFile } from "../rules/types.ts";
+import type { RuleFile, RuleScope } from "../rules/types.ts";
 import type { Change, Evidence, Prevalence, ProposalInsert } from "../store/queries.ts";
 import type { LearnGroup, NoteView } from "./prompt.ts";
 import type { Candidate, LearnOutput } from "./schema.ts";
 
+import { Schema } from "effect";
+
 import { utcDay } from "../domain/text.ts";
 import { fingerprint, newId } from "../rules/ids.ts";
 
-export class LearnError extends Error {
-  constructor(
-    readonly group: string,
-    message: string,
-  ) {
-    super(`learn ${group}: ${message}`);
-    this.name = "LearnError";
-  }
-}
+// oxlint-disable-next-line unicorn/throw-new-error -- Schema.TaggedError is a class factory, not an Error constructor; its fix inserts a `new` that breaks the class.
+export class LearnError extends Schema.TaggedError<LearnError>()("LearnError", {
+  group: Schema.String,
+  message: Schema.String,
+}) {}
 
 export type Dropped = { readonly reason: string; readonly detail: string };
 
@@ -185,6 +183,189 @@ export function passesThreshold(
   return candidate.singleSessionJustification !== null && notes.some((note) => note.kind === "observation");
 }
 
+type Accepted = {
+  readonly proposal: ProposalInsert;
+  readonly members: ReadonlySet<string>;
+  readonly noteIds: readonly string[];
+};
+
+function assertKnownIds(
+  group: LearnGroup,
+  output: LearnOutput,
+  notesById: ReadonlyMap<string, NoteView>,
+  bullets: ReadonlyMap<string, RuleFile>,
+): void {
+  for (const [index, candidate] of output.candidates.entries()) {
+    for (const id of candidate.noteIds) {
+      if (!notesById.has(id)) {
+        throw new LearnError({
+          group: group.key,
+          message: `learn ${group.key}: candidates[${index}] cites unknown note ${JSON.stringify(id)}`,
+        });
+      }
+    }
+
+    for (const id of candidate.ruleBulletIds) {
+      if (!bullets.has(id)) {
+        throw new LearnError({
+          group: group.key,
+          message: `learn ${group.key}: candidates[${index}] cites unknown bullet ${JSON.stringify(id)}`,
+        });
+      }
+    }
+  }
+}
+
+function refusal(
+  candidate: Candidate,
+  notes: readonly NoteView[],
+  cited: readonly RuleFile[],
+  prevalence: Prevalence,
+  context: GateContext,
+): Dropped | null {
+  if (notes.length === 0) {
+    return { reason: "no-evidence", detail: candidate.lessonEn };
+  }
+
+  if (candidate.isWatchTask) {
+    return { reason: "watch-task", detail: candidate.lessonEn };
+  }
+
+  if (candidate.verdict === "hold") {
+    return { reason: "hold", detail: candidate.lessonEn };
+  }
+
+  if (
+    (candidate.verdict === "ignored" ||
+      candidate.verdict === "misplaced" ||
+      candidate.verdict === "conflict" ||
+      candidate.verdict === "unclear") &&
+    cited.length === 0
+  ) {
+    return { reason: `${candidate.verdict}-without-rule`, detail: candidate.lessonEn };
+  }
+
+  if (!passesThreshold(candidate, notes, prevalence, cited, context)) {
+    return {
+      reason: "below-threshold",
+      detail: `${candidate.lessonEn} (${prevalence.sessions} sessions, ${prevalence.days} days)`,
+    };
+  }
+
+  return null;
+}
+
+function scopeRefusal(
+  candidate: Candidate,
+  group: LearnGroup,
+  notes: readonly NoteView[],
+  prevalence: Prevalence,
+  scope: RuleScope,
+): Dropped | null {
+  if (group.repoRoot === null && group.notes.some((note) => note.repoRoot !== null) && scope !== "global") {
+    return { reason: "global-group-repo-target", detail: candidate.lessonEn };
+  }
+
+  if (scope === "global") {
+    const statedForAll = notes.some((note) => note.kind === "steer" && note.isExplicit && EVERY_REPO.test(note.text));
+
+    if (prevalence.repos < 2 && !statedForAll) {
+      return { reason: "global-one-repo", detail: candidate.lessonEn };
+    }
+  }
+
+  return null;
+}
+
+function gateCandidate(
+  candidate: Candidate,
+  group: LearnGroup,
+  notes: readonly NoteView[],
+  cited: readonly RuleFile[],
+  context: GateContext,
+  seen: ReadonlySet<string>,
+): Accepted | Dropped {
+  const prevalence = prevalenceOf(notes, context.now);
+  const refused = refusal(candidate, notes, cited, prevalence, context);
+
+  if (refused !== null) {
+    return refused;
+  }
+
+  const target = resolveTarget(candidate, group);
+
+  if ("reason" in target) {
+    return target;
+  }
+
+  const scope = target.kind === "existing" ? target.file.scope : "path";
+  const misplaced = scopeRefusal(candidate, group, notes, prevalence, scope);
+
+  if (misplaced !== null) {
+    return misplaced;
+  }
+
+  const style = styleViolation(candidate.change);
+
+  if (style !== null) {
+    return { reason: "style", detail: style };
+  }
+
+  const applies = target.kind === "existing" ? editApplies(candidate.change, target.text) : null;
+
+  if (applies !== null) {
+    return applies;
+  }
+
+  const targetPath = target.kind === "existing" ? target.file.sourcePath : target.path;
+  const print = fingerprint(targetPath, candidate.lessonEn);
+  const rejectedAt = context.rejected.get(print);
+
+  if (rejectedAt !== undefined && prevalence.sessions <= rejectedAt) {
+    return { reason: "ledger-rejected", detail: candidate.lessonEn };
+  }
+
+  if (context.pending.has(print) || seen.has(print)) {
+    return { reason: "already-proposed", detail: candidate.lessonEn };
+  }
+
+  const evidence: Evidence[] = notes
+    .toSorted((a, b) => b.at.localeCompare(a.at))
+    .slice(0, EVIDENCE_PER_PROPOSAL)
+    .map((note) => ({
+      evidenceId: note.evidenceId,
+      kind: note.kind === "steer" ? "quote" : "observation",
+      at: note.at,
+      sessionId: note.sessionId,
+      text: note.text,
+      tool: note.tool,
+    }));
+
+  return {
+    proposal: {
+      id: newId(),
+      fingerprint: print,
+      createdAt: context.now,
+      source: "learn",
+      targetPath,
+      repoRoot: target.kind === "existing" ? target.file.repoRoot : target.repoRoot,
+      scope,
+      verdict: candidate.verdict,
+      claimFr: candidate.claimFr,
+      reasoningFr: candidate.reasoningFr,
+      lessonEn: candidate.lessonEn,
+      subjectEn: candidate.subjectEn.slice(0, 72),
+      change: candidate.change,
+      evidence,
+      prevalence,
+      bulletId: candidate.ruleBulletIds[0] ?? null,
+      learnRunId: context.runId,
+    },
+    members: new Set(notes.map((note) => note.id)),
+    noteIds: notes.map((note) => note.id),
+  };
+}
+
 /** Every rule here is code; the model only proposed. An unknown id fails the whole answer. */
 export function gateLearn(group: LearnGroup, output: LearnOutput, context: GateContext): GateResult {
   const notesById = new Map(group.notes.map((note) => [note.id, note]));
@@ -193,43 +374,18 @@ export function gateLearn(group: LearnGroup, output: LearnOutput, context: GateC
     group.rules.flatMap((rule) => rule.file.bullets.map((bullet) => [bullet.id, rule.file] as const)),
   );
 
-  output.candidates.forEach((candidate, index) => {
-    for (const id of candidate.noteIds) {
-      if (!notesById.has(id)) {
-        throw new LearnError(group.key, `candidates[${index}] cites unknown note ${JSON.stringify(id)}`);
-      }
-    }
-
-    for (const id of candidate.ruleBulletIds) {
-      if (!bullets.has(id)) {
-        throw new LearnError(group.key, `candidates[${index}] cites unknown bullet ${JSON.stringify(id)}`);
-      }
-    }
-  });
+  assertKnownIds(group, output, notesById, bullets);
 
   const dropped: Dropped[] = [];
-  const accepted: Array<{ proposal: ProposalInsert; members: ReadonlySet<string>; noteIds: readonly string[] }> = [];
+  const accepted: Accepted[] = [];
   const seen = new Set<string>();
 
   for (const candidate of output.candidates) {
-    const notes = [...new Set(candidate.noteIds)]
-      .map((id) => notesById.get(id))
-      .filter((note): note is NoteView => note !== undefined);
+    const notes = [...new Set(candidate.noteIds)].flatMap((id) => {
+      const note = notesById.get(id);
 
-    if (notes.length === 0) {
-      dropped.push({ reason: "no-evidence", detail: candidate.lessonEn });
-      continue;
-    }
-
-    if (candidate.isWatchTask) {
-      dropped.push({ reason: "watch-task", detail: candidate.lessonEn });
-      continue;
-    }
-
-    if (candidate.verdict === "hold") {
-      dropped.push({ reason: "hold", detail: candidate.lessonEn });
-      continue;
-    }
+      return note === undefined ? [] : [note];
+    });
 
     const cited = [
       ...new Set(
@@ -237,118 +393,18 @@ export function gateLearn(group: LearnGroup, output: LearnOutput, context: GateC
       ),
     ];
 
-    if (
-      (candidate.verdict === "ignored" ||
-        candidate.verdict === "misplaced" ||
-        candidate.verdict === "conflict" ||
-        candidate.verdict === "unclear") &&
-      cited.length === 0
-    ) {
-      dropped.push({ reason: `${candidate.verdict}-without-rule`, detail: candidate.lessonEn });
+    const gated = gateCandidate(candidate, group, notes, cited, context, seen);
+
+    if ("reason" in gated) {
+      dropped.push(gated);
       continue;
     }
 
-    const prevalence = prevalenceOf(notes, context.now);
-
-    if (!passesThreshold(candidate, notes, prevalence, cited, context)) {
-      dropped.push({
-        reason: "below-threshold",
-        detail: `${candidate.lessonEn} (${prevalence.sessions} sessions, ${prevalence.days} days)`,
-      });
-      continue;
-    }
-
-    const target = resolveTarget(candidate, group);
-
-    if ("reason" in target) {
-      dropped.push(target);
-      continue;
-    }
-
-    const scope = target.kind === "existing" ? target.file.scope : "path";
-
-    if (group.repoRoot === null && group.notes.some((note) => note.repoRoot !== null) && scope !== "global") {
-      dropped.push({ reason: "global-group-repo-target", detail: candidate.lessonEn });
-      continue;
-    }
-
-    if (scope === "global") {
-      const statedForAll = notes.some((note) => note.kind === "steer" && note.isExplicit && EVERY_REPO.test(note.text));
-
-      if (prevalence.repos < 2 && !statedForAll) {
-        dropped.push({ reason: "global-one-repo", detail: candidate.lessonEn });
-        continue;
-      }
-    }
-
-    const style = styleViolation(candidate.change);
-
-    if (style !== null) {
-      dropped.push({ reason: "style", detail: style });
-      continue;
-    }
-
-    const applies = target.kind === "existing" ? editApplies(candidate.change, target.text) : null;
-
-    if (applies !== null) {
-      dropped.push(applies);
-      continue;
-    }
-
-    const targetPath = target.kind === "existing" ? target.file.sourcePath : target.path;
-    const print = fingerprint(targetPath, candidate.lessonEn);
-    const rejectedAt = context.rejected.get(print);
-
-    if (rejectedAt !== undefined && prevalence.sessions <= rejectedAt) {
-      dropped.push({ reason: "ledger-rejected", detail: candidate.lessonEn });
-      continue;
-    }
-
-    if (context.pending.has(print) || seen.has(print)) {
-      dropped.push({ reason: "already-proposed", detail: candidate.lessonEn });
-      continue;
-    }
-
-    seen.add(print);
-
-    const evidence: Evidence[] = notes
-      .toSorted((a, b) => b.at.localeCompare(a.at))
-      .slice(0, EVIDENCE_PER_PROPOSAL)
-      .map((note) => ({
-        evidenceId: note.evidenceId,
-        kind: note.kind === "steer" ? "quote" : "observation",
-        at: note.at,
-        sessionId: note.sessionId,
-        text: note.text,
-        tool: note.tool,
-      }));
-
-    accepted.push({
-      proposal: {
-        id: newId(),
-        fingerprint: print,
-        createdAt: context.now,
-        source: "learn",
-        targetPath,
-        repoRoot: target.kind === "existing" ? target.file.repoRoot : target.repoRoot,
-        scope,
-        verdict: candidate.verdict,
-        claimFr: candidate.claimFr,
-        reasoningFr: candidate.reasoningFr,
-        lessonEn: candidate.lessonEn,
-        subjectEn: candidate.subjectEn.slice(0, 72),
-        change: candidate.change,
-        evidence,
-        prevalence,
-        bulletId: candidate.ruleBulletIds[0] ?? null,
-        learnRunId: context.runId,
-      },
-      members: new Set(notes.map((note) => note.id)),
-      noteIds: notes.map((note) => note.id),
-    });
+    seen.add(gated.proposal.fingerprint);
+    accepted.push(gated);
   }
 
-  const kept: typeof accepted = [];
+  const kept: Accepted[] = [];
 
   for (const entry of accepted.toSorted((a, b) => b.proposal.prevalence.sessions - a.proposal.prevalence.sessions)) {
     if (kept.some((other) => sharesEvidence(entry.members, other.members))) {

@@ -1,5 +1,5 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { Command, Flag } from "effect/cli";
 
 import { AppConfig, appLayer, printJson } from "./app.ts";
@@ -29,9 +29,11 @@ const hindsight = Command.make("hindsight").pipe(
   Command.withSubcommands([config, debrief, doctor, gate, handoff, learnCommand, pruneCommand, review, status]),
 );
 
+const mainLayer = Layer.mergeAll(appLayer, BunServices.layer);
+
 hindsight.pipe(
   Command.run({ version: "0.1.0" }),
-  Effect.provide(appLayer),
-  Effect.provide(BunServices.layer),
+  // @effect-diagnostics-next-line strictEffectProvide:off -- main.ts is the CLI's entry point: the one place the application's merged Layer is provided.
+  Effect.provide(mainLayer),
   BunRuntime.runMain,
 );

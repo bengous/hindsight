@@ -4,7 +4,7 @@
     "types": ["bun"],
     "plugins": [
       {
-        "allowedUnstableApis": ["effect/cli"],
+        "allowedUnstableApis": ["effect/cli", "@effect/platform-bun"],
         "completions": true,
         "diagnosticSeverity": {
           "anyUnknownInErrorContext": "warning",

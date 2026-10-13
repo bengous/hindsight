@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { Command, Flag } from "effect/cli";
 
 import { recordDebrief } from "../debrief/record.ts";
@@ -30,7 +30,7 @@ const start = Command.make(
     const store = yield* Store;
     const id = newId();
     yield* store.transaction((db) =>
-      insertDebrief(db, { id, sessionId: session, repoRoot: repo._tag === "Some" ? repo.value : null, at: nowIso() }),
+      insertDebrief(db, { id, sessionId: session, repoRoot: Option.getOrNull(repo), at: nowIso() }),
     );
     yield* printJson({ id });
   }),

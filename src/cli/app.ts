@@ -11,9 +11,9 @@ import { parseJson } from "../domain/json.ts";
 import { storeLayer } from "../store/db.ts";
 import { hindsightPaths } from "../store/paths.ts";
 
-export class AppPaths extends Context.Service<AppPaths, Paths>()("hindsight/cli/AppPaths") {}
+export class AppPaths extends Context.Service<AppPaths, Paths>()("hindsight/cli/app/AppPaths") {}
 
-export class AppConfig extends Context.Service<AppConfig, HindsightConfig>()("hindsight/cli/AppConfig") {}
+export class AppConfig extends Context.Service<AppConfig, HindsightConfig>()("hindsight/cli/app/AppConfig") {}
 
 export function loadConfig(configPath: string): HindsightConfig {
   if (!existsSync(configPath)) {
@@ -47,7 +47,7 @@ export const appLayer = Layer.mergeAll(
 
 export type App = AppPaths | AppConfig | Store;
 
-export const printJson = (value: unknown): Effect.Effect<void> =>
+export const printJson = (value: JsonValue): Effect.Effect<void> =>
   Effect.sync(() => {
     process.stdout.write(`${JSON.stringify(value)}\n`);
   });

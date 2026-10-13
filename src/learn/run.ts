@@ -1,12 +1,13 @@
 import type { HindsightConfig } from "../domain/config.ts";
 import type { InventoryEnv } from "../rules/inventory.ts";
 import type { RuleFile } from "../rules/types.ts";
-import type { StoreService } from "../store/db.ts";
+import type { StoreError, StoreService } from "../store/db.ts";
 import type { HistoryEntry, NoteRow } from "../store/queries.ts";
-import type { GateContext } from "./gates.ts";
+import type { ModelAnswer, ModelRequest } from "./claude.ts";
+import type { GateContext, GateResult } from "./gates.ts";
 import type { LearnGroup, NoteView, RuleSource } from "./prompt.ts";
 
-import { Effect } from "effect";
+import { Cause, Effect, Schema } from "effect";
 import { existsSync } from "node:fs";
 
 import { markersFor } from "../domain/human.ts";
@@ -25,7 +26,7 @@ import {
   pendingNotes,
   reserveLearnRun,
 } from "../store/queries.ts";
-import { ClaudeRunner, ModelError } from "./claude.ts";
+import { ClaudeRunner } from "./claude.ts";
 import { LearnError, gateLearn } from "./gates.ts";
 import { GLOBAL_GROUP, learnPrompt } from "./prompt.ts";
 import { prune } from "./prune.ts";
@@ -56,24 +57,27 @@ const STALE_RUN_MS = 2 * 60 * 60 * 1000;
 
 const NO_CONTEXT = { isFirstPrompt: false, afterInterrupt: false, rejectedTools: [] } as const;
 
-type Json = Record<string, unknown>;
+const decodeSteerBody = Schema.decodeSync(
+  Schema.fromJsonString(Schema.Struct({ quote: Schema.String, habit: Schema.Boolean })),
+);
 
-const isJson = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
+const decodeObservationBody = Schema.decodeSync(
+  Schema.fromJsonString(Schema.Struct({ question: Schema.Number, tool: Schema.String, excerpt: Schema.String })),
+);
 
-const str = (record: Json, key: string): string | null => (typeof record[key] === "string" ? record[key] : null);
+const decodeLoadedRules = Schema.decodeSync(Schema.fromJsonString(Schema.Array(Schema.String)));
+
+const isLearnError = Schema.is(LearnError);
 
 export function toNoteView(row: NoteRow): NoteView | null {
   if (row.kind === "stale_rule") {
     return null;
   }
 
-  const parsed: unknown = JSON.parse(row.body_json);
-  const body = isJson(parsed) ? parsed : {};
-  const loaded: unknown = JSON.parse(row.loaded_rules_json);
-  const loadedRules = Array.isArray(loaded) ? loaded.filter((path): path is string => typeof path === "string") : [];
+  const loadedRules = decodeLoadedRules(row.loaded_rules_json);
 
   if (row.kind === "steer") {
-    const quote = str(body, "quote") ?? "";
+    const body = decodeSteerBody(row.body_json);
 
     return {
       id: row.id,
@@ -82,15 +86,17 @@ export function toNoteView(row: NoteRow): NoteView | null {
       repoRoot: row.repo_root,
       at: row.at,
       lesson: row.lesson,
-      text: quote,
-      habit: body["habit"] === true,
+      text: body.quote,
+      habit: body.habit,
       tool: null,
       question: null,
       loadedRules,
-      isExplicit: markersFor(quote, NO_CONTEXT).includes("standing_instruction"),
+      isExplicit: markersFor(body.quote, NO_CONTEXT).includes("standing_instruction"),
       evidenceId: row.evidence_id,
     };
   }
+
+  const body = decodeObservationBody(row.body_json);
 
   return {
     id: row.id,
@@ -99,10 +105,10 @@ export function toNoteView(row: NoteRow): NoteView | null {
     repoRoot: row.repo_root,
     at: row.at,
     lesson: row.lesson,
-    text: str(body, "excerpt") ?? "",
+    text: body.excerpt,
     habit: null,
-    tool: str(body, "tool"),
-    question: typeof body["question"] === "number" ? body["question"] : null,
+    tool: body.tool,
+    question: body.question,
     loadedRules,
     isExplicit: false,
     evidenceId: row.evidence_id,
@@ -152,15 +158,13 @@ export function planGroups(
 }
 
 async function withTexts(groups: readonly LearnGroup[]): Promise<LearnGroup[]> {
-  const texts = new Map<string, string>();
+  const paths = [...new Set(groups.flatMap((group) => group.rules.map((rule) => rule.file.sourcePath)))];
 
-  for (const group of groups) {
-    for (const rule of group.rules) {
-      if (!texts.has(rule.file.sourcePath)) {
-        texts.set(rule.file.sourcePath, await Bun.file(rule.file.sourcePath).text());
-      }
-    }
-  }
+  const texts = new Map(
+    await Promise.all(
+      paths.map(async (path): Promise<readonly [string, string]> => [path, await Bun.file(path).text()]),
+    ),
+  );
 
   return groups.map((group) => ({
     ...group,
@@ -175,8 +179,15 @@ type Reserved = {
   readonly pending: Set<string>;
 };
 
-function reserve(store: StoreService, config: HindsightConfig, ifDue: boolean, nowIso: string) {
-  return store.transaction((db): Reserved | { readonly skipped: string } => {
+type Skipped = { readonly skipped: string };
+
+function reserve(
+  store: StoreService,
+  config: HindsightConfig,
+  ifDue: boolean,
+  nowIso: string,
+): Effect.Effect<Reserved | Skipped, StoreError> {
+  return store.transaction((db): Reserved | Skipped => {
     failStaleLearnRuns(db, nowIso, STALE_RUN_MS);
     const windowStart = new Date(new Date(nowIso).getTime() - config.notes.windowDays * 86_400_000).toISOString();
     expireNotes(db, windowStart);
@@ -204,8 +215,48 @@ function reserve(store: StoreService, config: HindsightConfig, ifDue: boolean, n
   });
 }
 
+type GroupOutcome =
+  | { readonly costUsd: number; readonly failure: string }
+  | { readonly costUsd: number; readonly gated: GateResult };
+
+function gateAnswer(group: LearnGroup, answer: ModelAnswer, context: GateContext): GroupOutcome {
+  try {
+    return { costUsd: answer.costUsd, gated: gateLearn(group, decodeLearnOutput(answer.output), context) };
+  } catch (error) {
+    if (isLearnError(error)) {
+      return { costUsd: answer.costUsd, failure: error.message };
+    }
+
+    return {
+      costUsd: answer.costUsd,
+      failure: `${group.key}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+function askGroup(
+  runner: ClaudeRunner["Service"],
+  request: ModelRequest,
+  group: LearnGroup,
+  context: GateContext,
+): Effect.Effect<GroupOutcome> {
+  return runner.run(request).pipe(
+    Effect.match({
+      onFailure: (error): GroupOutcome => ({
+        costUsd: error.costUsd,
+        failure: `${group.key}: ${error.kind}: ${error.detail}`,
+      }),
+      onSuccess: (answer) => gateAnswer(group, answer, context),
+    }),
+  );
+}
+
 /** Learn: pending Notes → one model call per scope → code gates → Proposals. One run at a time. */
-export const learn = (options: LearnOptions, config: HindsightConfig, nowIso: string = new Date().toISOString()) =>
+export const learn = (
+  options: LearnOptions,
+  config: HindsightConfig,
+  nowIso: string = new Date().toISOString(),
+): Effect.Effect<LearnReport, StoreError | Cause.UnknownError, Store | ClaudeRunner> =>
   Effect.gen(function* () {
     const store = yield* Store;
     const runner = yield* ClaudeRunner;
@@ -238,7 +289,7 @@ export const learn = (options: LearnOptions, config: HindsightConfig, nowIso: st
     let costUsd = 0;
     let groups: LearnGroup[] = [];
 
-    const finish = (status: "complete" | "failed", failure: string | null) =>
+    const finish = (status: "complete" | "failed", failure: string | null): Effect.Effect<void, StoreError> =>
       store.transaction((db) =>
         finishLearnRun(db, {
           id: reserved.runId,
@@ -253,7 +304,7 @@ export const learn = (options: LearnOptions, config: HindsightConfig, nowIso: st
 
     const files = yield* Effect.tryPromise({
       try: async () => inventory(repoRoots, options.inventoryEnv),
-      catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+      catch: (cause) => new Cause.UnknownError(cause, cause instanceof Error ? cause.message : String(cause)),
     }).pipe(
       Effect.catch((error) =>
         Effect.flatMap(finish("failed", `inventory: ${error.message}`), () => Effect.fail(error)),
@@ -270,6 +321,15 @@ export const learn = (options: LearnOptions, config: HindsightConfig, nowIso: st
 
     const jsonSchema = learnJsonSchema();
 
+    const context: GateContext = {
+      runId: reserved.runId,
+      now: nowIso,
+      minSessions: MIN_SESSIONS,
+      minDays: MIN_DAYS,
+      rejected,
+      pending: reserved.pending,
+    };
+
     for (const group of groups) {
       const remaining = Math.floor((config.learn.maxBudgetUsd - costUsd) * 100) / 100;
 
@@ -278,46 +338,24 @@ export const learn = (options: LearnOptions, config: HindsightConfig, nowIso: st
         continue;
       }
 
-      const answer = yield* runner
-        .run({
-          label: `learn ${group.key}`,
-          model: config.learn.model,
-          prompt: learnPrompt(group),
-          jsonSchema,
-          maxBudgetUsd: remaining,
-          timeoutMs: config.learn.timeoutMs,
-        })
-        .pipe(Effect.catch((error: ModelError) => Effect.succeed(error)));
-
-      if (answer instanceof ModelError) {
-        costUsd += answer.costUsd;
-        failures.push(`${group.key}: ${answer.kind}: ${answer.detail}`);
-        continue;
-      }
-
-      costUsd += answer.costUsd;
-
-      const context: GateContext = {
-        runId: reserved.runId,
-        now: nowIso,
-        minSessions: MIN_SESSIONS,
-        minDays: MIN_DAYS,
-        rejected,
-        pending: reserved.pending,
+      const request: ModelRequest = {
+        label: `learn ${group.key}`,
+        model: config.learn.model,
+        prompt: learnPrompt(group),
+        jsonSchema,
+        maxBudgetUsd: remaining,
+        timeoutMs: config.learn.timeoutMs,
       };
 
-      let gated;
+      const outcome = yield* askGroup(runner, request, group, context);
+      costUsd += outcome.costUsd;
 
-      try {
-        gated = gateLearn(group, decodeLearnOutput(answer.output), context);
-      } catch (error) {
-        failures.push(
-          error instanceof LearnError
-            ? error.message
-            : `${group.key}: ${error instanceof Error ? error.message : String(error)}`,
-        );
+      if ("failure" in outcome) {
+        failures.push(outcome.failure);
         continue;
       }
+
+      const { gated } = outcome;
 
       for (const drop of gated.dropped) {
         dropped[drop.reason] = (dropped[drop.reason] ?? 0) + 1;

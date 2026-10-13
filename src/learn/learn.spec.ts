@@ -1,12 +1,14 @@
 import type { HindsightConfig } from "../domain/config.ts";
+import type { JsonValue } from "../domain/json.ts";
 import type { StoreService } from "../store/db.ts";
 import type { ProposalRow } from "../store/queries.ts";
-import type { GateContext } from "./gates.ts";
+import type { GateContext, GateResult } from "./gates.ts";
 import type { LearnGroup, NoteView } from "./prompt.ts";
+import type { LearnReport } from "./run.ts";
 import type { Candidate } from "./schema.ts";
 
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 
@@ -142,7 +144,7 @@ describe("gateLearn", () => {
   });
 
   test("principle 5: one session passes only when stated outright, in conflict with a loaded rule, or a clear Observation", () => {
-    const one = (overrides: Partial<Candidate>) =>
+    const one = (overrides: Partial<Candidate>): GateResult =>
       gateLearn(group, { candidates: [candidate({ noteIds: ["n1"], ...overrides })] }, context);
 
     expect(one({}).dropped[0]?.reason).toBe("below-threshold");
@@ -295,7 +297,7 @@ describe("learn", () => {
     learn: { ...defaultConfig.learn, pendingNotes: 2, maxBudgetUsd: 0.25 },
   };
 
-  const seed = async (count: number) =>
+  const seed = async (count: number): Promise<void> =>
     Effect.runPromise(
       store.transaction((db) => {
         insertDebrief(db, { id: "d1", sessionId: "s1", repoRoot: repo.root, at: NOW });
@@ -318,15 +320,19 @@ describe("learn", () => {
       }),
     );
 
-  const run = async (answers: readonly unknown[], ifDue = false, nowIso = NOW) =>
+  const run = async (
+    answers: ReadonlyArray<JsonValue | ModelError>,
+    ifDue = false,
+    nowIso = NOW,
+  ): Promise<LearnReport> =>
     Effect.runPromise(
       learn({ ifDue, inventoryEnv: { home } }, config, nowIso).pipe(
-        Effect.provide(Layer.succeed(Store, store)),
-        Effect.provide(Layer.succeed(ClaudeRunner, scriptedRunner(answers))),
+        Effect.provideService(Store, store),
+        Effect.provideService(ClaudeRunner, scriptedRunner(answers)),
       ),
     );
 
-  const proposals = async () =>
+  const proposals = async (): Promise<ProposalRow[]> =>
     Effect.runPromise(store.all<ProposalRow>("SELECT * FROM proposals ORDER BY created_at"));
 
   beforeEach(async () => {
@@ -461,8 +467,8 @@ describe("learn", () => {
 
     const report = await Effect.runPromise(
       learn({ ifDue: false, inventoryEnv: { home } }, tight, NOW).pipe(
-        Effect.provide(Layer.succeed(Store, store)),
-        Effect.provide(Layer.succeed(ClaudeRunner, scriptedRunner([{ candidates: [] }, { candidates: [] }]))),
+        Effect.provideService(Store, store),
+        Effect.provideService(ClaudeRunner, scriptedRunner([{ candidates: [] }, { candidates: [] }])),
       ),
     );
 
@@ -527,9 +533,7 @@ describe("prune", () => {
   test("a dead glob becomes a description Proposal once, filtered by the Ledger", async () => {
     const store = await Effect.runPromise(makeStore(":memory:"));
 
-    const first = await Effect.runPromise(
-      prune([repo.root], { home }, NOW).pipe(Effect.provide(Layer.succeed(Store, store))),
-    );
+    const first = await Effect.runPromise(prune([repo.root], { home }, NOW).pipe(Effect.provideService(Store, store)));
 
     expect(first).toMatchObject({ repos: 1, proposals: 1, skipped: {} });
     expect(first.findings).toBeGreaterThanOrEqual(1);
@@ -542,9 +546,7 @@ describe("prune", () => {
     expect(JSON.parse(rows[0]?.change_json ?? "")).toMatchObject({ kind: "description" });
     expect(rows[0]?.claim_fr).toContain("legacy/**");
 
-    const second = await Effect.runPromise(
-      prune([repo.root], { home }, NOW).pipe(Effect.provide(Layer.succeed(Store, store))),
-    );
+    const second = await Effect.runPromise(prune([repo.root], { home }, NOW).pipe(Effect.provideService(Store, store)));
 
     expect(second.skipped).toEqual({ "already-pending": first.findings });
     await Effect.runPromise(
@@ -560,11 +562,9 @@ describe("prune", () => {
       }),
     );
 
-    const third = await Effect.runPromise(
-      prune([repo.root], { home }, NOW).pipe(Effect.provide(Layer.succeed(Store, store))),
-    );
+    const third = await Effect.runPromise(prune([repo.root], { home }, NOW).pipe(Effect.provideService(Store, store)));
 
     expect(third.skipped).toEqual({ "ledger-rejected": first.findings });
-    expect(await Effect.runPromise(knownRepos.pipe(Effect.provide(Layer.succeed(Store, store))))).toEqual([repo.root]);
+    expect(await Effect.runPromise(knownRepos.pipe(Effect.provideService(Store, store)))).toEqual([repo.root]);
   });
 });

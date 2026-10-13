@@ -11,12 +11,11 @@ function isLiteralValue(init: ESTree.Expression): boolean {
     return false;
   }
 
-  return (
-    "regex" in init ||
-    typeof init.value === "string" ||
-    typeof init.value === "number" ||
-    typeof init.value === "boolean"
-  );
+  if ("regex" in init) {
+    return true;
+  }
+
+  return !("bigint" in init) && init.value !== null;
 }
 
 function isModuleConstant(node: ESTree.VariableDeclarator): boolean {

@@ -1,4 +1,6 @@
-import { Effect, Schema } from "effect";
+import type { Decision } from "../review/port.ts";
+
+import { Effect, Match, Schema } from "effect";
 import { Command } from "effect/cli";
 
 import { decideProposal, listReview, prepareHandoff } from "../review/port.ts";
@@ -31,12 +33,13 @@ const decide = Command.make(
   Effect.fn(function* () {
     const input = yield* Schema.decodeUnknownEffect(DecideStdin)(JSON.parse(yield* readStdin));
 
-    const decision =
-      input.decision === "accept"
-        ? ({ kind: "accept", edits: input.edits } as const)
-        : input.decision === "reject"
-          ? ({ kind: "reject", reason: input.reason } as const)
-          : ({ kind: "handoff" } as const);
+    const decision = Match.value(input).pipe(
+      Match.discriminatorsExhaustive("decision")({
+        accept: (accept): Decision => ({ kind: "accept", edits: accept.edits }),
+        reject: (reject): Decision => ({ kind: "reject", reason: reject.reason }),
+        handoff: (): Decision => ({ kind: "handoff" }),
+      }),
+    );
 
     yield* printJson(yield* decideProposal(input.id, decision));
   }),

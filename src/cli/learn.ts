@@ -1,6 +1,6 @@
 import type { Paths } from "../store/paths.ts";
 
-import { Effect, Layer } from "effect";
+import { Effect, Option } from "effect";
 import { Command, Flag } from "effect/cli";
 import { openSync } from "node:fs";
 import { join } from "node:path";
@@ -55,7 +55,7 @@ export const learnCommand = Command.make(
     const config = yield* AppConfig;
 
     const report = yield* learn({ ifDue, inventoryEnv: defaultInventoryEnv() }, config).pipe(
-      Effect.provide(Layer.succeed(ClaudeRunner, liveRunner)),
+      Effect.provideService(ClaudeRunner, liveRunner),
     );
 
     yield* printJson(report);
@@ -72,7 +72,7 @@ export const pruneCommand = Command.make(
   },
   Effect.fn(function* ({ repo }) {
     const known = yield* knownRepos;
-    const roots = repo._tag === "Some" ? [...known, repo.value] : known;
+    const roots = [...known, ...Option.toArray(repo)];
     yield* printJson(yield* prune(roots, defaultInventoryEnv()));
   }),
 ).pipe(Command.withDescription("Code checks over the Rule Files: dead globs, gone paths, missing scripts"));

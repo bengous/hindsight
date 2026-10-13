@@ -1,3 +1,5 @@
+import type { JsonSchema } from "effect";
+
 import { Schema } from "effect";
 
 import { VERDICTS } from "../domain/proposal.ts";
@@ -33,6 +35,6 @@ export type Candidate = typeof CandidateSchema.Type;
 export const decodeLearnOutput = Schema.decodeUnknownSync(LearnOutputSchema);
 
 /** The JSON Schema `claude -p --json-schema` receives, derived from the same Schema that decodes the answer. */
-export function learnJsonSchema(): Record<string, unknown> {
+export function learnJsonSchema(): JsonSchema.JsonSchema {
   return Schema.toJsonSchemaDocument(LearnOutputSchema, { onExcessProperty: "error" }).schema;
 }
