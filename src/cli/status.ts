@@ -17,17 +17,8 @@ export const status = Command.make(
 
     const report = yield* store.transaction((db): StatusReport => {
       abortStaleDebriefs(db, nowIso());
-      const snapshot = statusSnapshot(db);
 
-      return {
-        debriefs: snapshot.debriefs,
-        cacheShare: snapshot.cacheShare,
-        failures: snapshot.failures,
-        pendingNotes: countPendingNotes(db),
-        pendingProposals: snapshot.pendingProposals,
-        gate: snapshot.gate,
-        learn: snapshot.learn,
-      };
+      return { ...statusSnapshot(db), pendingNotes: countPendingNotes(db) };
     });
 
     yield* printJson(report);
