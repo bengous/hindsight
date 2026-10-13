@@ -122,11 +122,7 @@ async function endTurn(host: Host, turnId: string, isAborted: boolean, agentId: 
     return;
   }
 
-  host.after(1, () => {
-    void classifyThenDebrief(host, config, turnId, outcome.brief, outcome.score, false).catch(
-      logFailure(host, "debrief pipeline"),
-    );
-  });
+  await classifyThenDebrief(host, config, turnId, outcome.brief, outcome.score, false);
 }
 
 async function forceDebrief(host: Host): Promise<void> {
@@ -396,7 +392,10 @@ export const register: Register = (on) => {
 
     if (e.agentId === undefined) {
       const host = makeHost($);
-      void endTurn(host, e.turnId, e.isAborted, null).catch(logFailure(host, "gate"));
+
+      host.after(1, () => {
+        void endTurn(host, e.turnId, e.isAborted, null).catch(logFailure(host, "gate"));
+      });
     }
 
     return result;

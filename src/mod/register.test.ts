@@ -187,6 +187,8 @@ describe("the Gate at turn.complete", () => {
     await $.prompt.submit({ text: "Ajoute un test pour parse()", wait: false, origin: { kind: "composer" } });
     world.messages = [toolMessage("Read", { file_path: "/repo/a.ts" })];
     await $.turn.complete({ answer: "done", durationMs: 10, isAborted: false, turnId: "t-1", reason: "answer" });
+    expect(world.cli.filter((call) => call.argv.includes("gate"))).toHaveLength(0);
+    await world.clock.advance(1);
     await world.clock.settle();
     const log = world.cli.find((call) => call.argv.includes("gate"));
     expect(JSON.parse(log?.stdin ?? "{}")).toMatchObject({ decision: "skip", reason: "below-threshold", score: 0 });
@@ -200,6 +202,7 @@ describe("the Gate at turn.complete", () => {
     await world.clock.settle();
     await $.prompt.submit({ text: "fais le plan", wait: false, origin: { kind: "composer" } });
     await $.turn.complete({ answer: "ok", durationMs: 10, isAborted: false, turnId: "t-0", reason: "answer" });
+    await world.clock.advance(1);
     await world.clock.settle();
     await $.prompt.submit({ text: "non, pas de npm pour ça", wait: false, origin: { kind: "composer" } });
     world.messages = [

@@ -28,7 +28,7 @@ E("register", "facts", "addHumanText");
 
 E("register", "state", "captureHuman : readState · writeState");
 
-E("register", "gate", "afterTurn · classifyThenDebrief (+1 ms)");
+E("register", "gate", "endTurn (+1 ms) : afterTurn · classifyThenDebrief");
 
 E("register", "configrules", "readConfig(config)");
 

@@ -91,7 +91,7 @@ add(
         "Variables de module",
         "config, isInteractive, drafts (le texte en cours de saisie) : perdues à un rechargement",
       ],
-      ["Timer", "le Portail qui passe programme classifyThenDebrief à +1 ms, hors du hook"],
+      ["Timer", "turn.complete programme endTurn à +1 ms : Portail, classifieur et fork tournent hors du hook"],
     ],
     warn: "<code>/hindsight debrief</code> ignore sauts et classifieur : seul le verrou de fork s'applique. Un tour de sous-agent est filtré avant le Portail et n'est jamais journalisé.",
     see: ["host", "gate", "pane"],

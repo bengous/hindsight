@@ -5,7 +5,7 @@ paths:
   - "types/**"
 ---
 - Only `register.ts` touches `$`; a function that receives `$` sits at its top level, never nested or imported. The rest reads a `Host` built by `makeHost`. `claude plugin validate .` names the line that breaks this; its `--strict` fails on the CLAUDE.md warning (the repo root is the plugin root), so run it without.
-- Hooks never put text in the model's context: `command.run` answers `{}`, `turn.complete` returns what `next(e)` gave. Surfaces are `$.ui.status`, `$.ui.toast`, the pane, and `$.prompt.fill` for the Handoff alone.
+- Hooks never put text in the model's context: `command.run` answers `{}`, `turn.complete` returns what `next(e)` gave and starts a `$.clock.after` timer that runs the Gate, the classifier and the fork off the turn's dispatch. Surfaces are `$.ui.status`, `$.ui.toast`, the pane, and `$.prompt.fill` for the Handoff alone.
 - `session.start` holds the first prompt: register the command, then start `startup` without awaiting it.
 - Session state lives in `$.store` under `session:<id>` (TurnFacts, fork lock with its start time, stale after `FORK_STALE_MS`). The pane's state is the `$.state` value `hindsight.review`, declared in `types/index.d.ts` (the contract `plugin.json` names) and read through `PluginState`: a write redraws the pane, nobody calls `$.ui.invalidate`. Module variables die on a reload and `$.state` on `/clear`; the drafts typed in the edit mode stay a module variable, a write per keystroke would redraw the field.
 - The engine draws the plugin's name on toasts and the status line: no `hindsight :` prefix.

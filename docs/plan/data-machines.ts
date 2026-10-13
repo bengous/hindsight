@@ -106,7 +106,7 @@ const GATE_CHECKS: readonly Check[] = [
     skip: "non : below-threshold",
     skipBy: "code",
     skipDesc: "",
-    next: "oui : minuteur +1 ms",
+    next: "oui",
     src: "src/mod/gate.ts · afterTurn (seuil)",
   },
   {
