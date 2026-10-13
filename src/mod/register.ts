@@ -60,7 +60,7 @@ async function startup(host: Host): Promise<void> {
   try {
     config = readConfig(await cliConfig(host));
   } catch (error) {
-    host.toast(`hindsight : config illisible, défauts gardés (${describe(error)})`);
+    host.toast(`config illisible, défauts gardés (${describe(error)})`);
   }
   try {
     host.status(noticeLine(await cliStatus(host)));
@@ -115,11 +115,11 @@ async function openReview(host: Host, open: (focus: boolean) => Promise<boolean>
   const listed = toPaneItems(await runCli(host, ["review", "list"]));
   review = { ...emptyReview, items: listed.items, pending: listed.pending };
   if (listed.items.length === 0) {
-    host.toast("hindsight : aucune Proposal en attente");
+    host.toast("aucune Proposal en attente");
     return;
   }
   redraw();
-  if (!(await open(true))) host.toast("hindsight : élargis le terminal pour voir le panneau de Review");
+  if (!(await open(true))) host.toast("élargis le terminal pour voir le panneau de Review");
 }
 
 function dropCurrent(): void {
@@ -147,7 +147,7 @@ async function decide(host: Host, body: Json, redraw: () => void): Promise<void>
       review = { ...review, mode: { kind: "view" }, notice: `Décision refusée : ${reason}` };
     } else {
       const label = kind === "accepted" ? "acceptée" : kind === "rejected" ? "rejetée" : "en Handoff";
-      host.toast(`hindsight : Proposal ${label}`);
+      host.toast(`Proposal ${label}`);
       dropCurrent();
     }
   } catch (error) {
@@ -223,11 +223,11 @@ async function fillHandoff(host: Host): Promise<void> {
   const answer = await runCli(host, ["handoff", "prepare"]);
   const instructions = isJson(answer) && typeof answer["instructions"] === "string" ? answer["instructions"] : null;
   if (instructions === null) {
-    host.toast("hindsight : aucune Proposal en Handoff");
+    host.toast("aucune Proposal en Handoff");
     return;
   }
   await host.fill(instructions);
-  host.toast("hindsight : instructions du Handoff dans le prompt, à envoyer si tu veux");
+  host.toast("instructions du Handoff dans le prompt, à envoyer si tu veux");
 }
 
 async function runCommand(
@@ -239,7 +239,7 @@ async function runCommand(
   switch (verb) {
     case "status": {
       const status = await cliStatus(host);
-      host.toast(noticeLine(status) ?? "hindsight : rien en attente");
+      host.toast(noticeLine(status) ?? "rien en attente");
       return;
     }
     case "debrief":
@@ -253,15 +253,11 @@ async function runCommand(
       return;
     case "learn": {
       const answer = await runCli(host, ["learn", "--detach"]);
-      host.toast(
-        isJson(answer) && answer["detached"] === true
-          ? "hindsight : Learn lancé en arrière-plan"
-          : "hindsight : Learn non lancé",
-      );
+      host.toast(isJson(answer) && answer["detached"] === true ? "Learn lancé en arrière-plan" : "Learn non lancé");
       return;
     }
     default:
-      host.toast(`hindsight : commande inconnue « ${verb} » (review, status, debrief, learn, handoff)`);
+      host.toast(`commande inconnue « ${verb} » (review, status, debrief, learn, handoff)`);
   }
 }
 
@@ -272,11 +268,11 @@ export const register: Register = (on) => {
     try {
       await $.command.register({
         name: COMMAND,
-        description: "hindsight : review, status, debrief, learn, handoff",
+        description: "review, status, debrief, learn, handoff",
         argumentHint: "review|status|debrief|learn|handoff",
       });
     } catch (error) {
-      host.toast(`hindsight : commande non enregistrée (${describe(error)})`);
+      host.toast(`commande non enregistrée (${describe(error)})`);
     }
     void startup(host);
     return next(e);
@@ -317,7 +313,7 @@ export const register: Register = (on) => {
       },
       redraw: () => $.ui.invalidate("ui.render"),
     };
-    void runCommand(host, e.args, pane).catch((error: unknown) => host.toast(`hindsight : ${describe(error)}`));
+    void runCommand(host, e.args, pane).catch((error: unknown) => host.toast(`${describe(error)}`));
     return {};
   });
 

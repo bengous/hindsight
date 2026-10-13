@@ -10,5 +10,5 @@ export function noticeLine(status: StatusSummary): string | undefined {
   }
   if (status.failures > 0)
     parts.push(`${status.failures} Debrief${status.failures > 1 ? "s" : ""} en erreur · /hindsight status`);
-  return parts.length === 0 ? undefined : `hindsight : ${parts.join(" · ")}`;
+  return parts.length === 0 ? undefined : parts.join(" · ");
 }

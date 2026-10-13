@@ -139,7 +139,7 @@ describe("session.start", () => {
     await world.clock.advance(5_000);
     await world.clock.settle();
     expect(cliCommands(world)).toEqual(["config", "status"]);
-    expect(world.statuses).toEqual(["hindsight : 2 Proposals en attente · /hindsight review"]);
+    expect(world.statuses).toEqual(["2 Proposals en attente · /hindsight review"]);
   });
 
   test("with nothing pending the status line stays empty", async ($, on) => {
