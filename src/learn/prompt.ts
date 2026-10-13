@@ -39,11 +39,11 @@ DATA SAFETY
 - The code counts sessions, days and repositories from the notes you cite. Never state counts. Cite every note that supports a candidate.
 
 NO-OP IS PREFERRED
-Return {"candidates": []} when nothing deserves a change. At most 8 candidates, strongest first.
+Return {"candidates": []} when nothing deserves a change. Strongest first.
 
-STEP 1: GROUP the notes that express the same way of working, across sessions. One candidate per distinct lesson.
+GROUPING: one candidate per distinct lesson, gathering the notes that express the same way of working across sessions.
 
-STEP 2: JUDGE each group against the rules the sessions had loaded (note.loadedRules) and the current Rule Files; verdict:
+VERDICT, judged against the rules the sessions had loaded (note.loadedRules) and the current Rule Files:
 - missing: no rule states it.
 - ignored: a rule loaded in those sessions states it and the agent broke it. Cite the bullet. Rewording rarely helps: prefer a description of a hook or check.
 - misplaced: a rule states it but did not load when needed (a path-scoped file whose paths miss the files involved). Cite the bullet.
@@ -52,7 +52,7 @@ STEP 2: JUDGE each group against the rules the sessions had loaded (note.loadedR
 - hold: too weak to act on yet. No change.
 A single session may carry a candidate when the human stated the way of working outright, when it contradicts a loaded rule, or when an Observation is clear on its own: then write why in singleSessionJustification, else leave it null.
 
-STEP 3: PLACE AND WRITE, following the human's conventions
+PLACEMENT AND WORDING, following the human's conventions
 - A Rule File holds Constraints only: guidance on something the agent does anyway. A watch task (keep docs current, notice conventions, check X each time) does not belong there: set isWatchTask true and describe the hook or check that would carry it instead.
 - The root AGENTS.md is a short index; detail belongs in path-scoped files under .claude/rules/ with "paths" frontmatter.
 - The global Rule File takes a lesson only when notes from at least two repositories support it, or when the human stated it for every repository. Otherwise target the repository's Rule Files, path-scoped when it fits.

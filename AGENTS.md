@@ -23,9 +23,9 @@ Out-of-band upkeep of the Rule Files coding agents load. A Claude Code mod runs 
 - `src/mod/`: the Claude Code mod (`hooks/hooks.json` → `register.ts`), its `Host`, the CLI client, the Gate and Debrief orchestration, the Notice, the Review pane. Engine types are pinned in `types/claude-code.d.ts`; `tsconfig.mod.json` type-checks it without DOM. Kit tests are `*.test.ts` under `src/mod/` (`claude plugin test .`), excluded from `bun test`.
 - `src/cli/`: `main.ts` and the Effect commands: `config`, `status`, `doctor`, `gate log|replay`, `debrief start|record`, `learn`, `prune`, `review list|decide`, `handoff prepare`. Every command prints one JSON line.
 - `src/store/`: the `bun:sqlite` Store service, migrations, queries. `src/transcripts/`: JSONL reading, one session with its continuations. `src/debrief/`: verification and storage of a Debrief's answer. `src/gate/`: the replay. `src/learn/`: schema, prompt, code gates, `claude -p` runner, Learn and Prune. `src/rules/`: inventory, markdown, globs, stale checks, apply and commit. `src/review/`: the output port.
-- `plans/`: session records of the v2 pass.
+- `plans/`: session records: task checklists and follow-up prompts for an agent.
 - `.claude/rules/mod.md` and `.claude/rules/cli.md` hold the path-scoped detail; this file stays the index.
 
 ## Commands
 
-`bun test`, `claude plugin test .`, `claude plugin validate .`, `bun run typecheck`, `bun run lint`, `bun run format`. Run the CLI with `bun src/cli/main.ts <command>`; a session with the mod: `claude --plugin-dir .`.
+`bun test`, `claude plugin test .`, `claude plugin validate .`, `bun run typecheck`, `bun run lint`, `bun run format`. One suite: `bun test src/domain/gate.spec.ts`; one test: `bun test --test-name-pattern <regex>`. Run the CLI with `bun src/cli/main.ts <command>`; a session with the mod: `claude --plugin-dir .`, or `/reload-plugins` where the plugin is installed from this checkout.
