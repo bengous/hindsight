@@ -1,7 +1,8 @@
 import type { JsonValue } from "../domain/json.ts";
+import type { ReviewState } from "./host.ts";
 import type { Elements, RenderElement } from "claude-code";
 
-import { toDraft, unifiedDiff } from "../domain/diff.ts";
+import { unifiedDiff } from "../domain/diff.ts";
 import { isJsonObject, isNumber, isString } from "../domain/json.ts";
 import { displayText } from "../domain/text.ts";
 
@@ -9,51 +10,21 @@ import { displayText } from "../domain/text.ts";
 export type PaneElements = Pick<Elements["mobile"], "Box" | "Text" | "Button" | "Code"> &
   Partial<Pick<Elements["terminal"], "Input">>;
 
-export type PaneEvidence = {
-  readonly kind: "quote" | "observation";
-  readonly at: string;
-  readonly text: string;
-  readonly message: string | null;
-  readonly tool: string | null;
-};
+export type PaneItem = ReviewState["items"][number];
 
-export type PaneItem = {
-  readonly id: string;
-  readonly targetPath: string;
-  readonly repoRoot: string | null;
-  readonly verdict: string | null;
-  readonly source: string;
-  readonly claimFr: string;
-  readonly reasoningFr: string;
-  readonly lessonEn: string;
-  readonly change:
-    | { readonly kind: "edit"; readonly edits: ReadonlyArray<{ readonly oldText: string; readonly newText: string }> }
-    | { readonly kind: "description"; readonly text: string };
-  readonly evidence: readonly PaneEvidence[];
-  readonly prevalence: { readonly sessions: number; readonly days: number; readonly repos: number };
-};
+export type PaneMode = ReviewState["mode"];
 
-export type PaneMode =
-  | { readonly kind: "view" }
-  | { readonly kind: "edit"; readonly drafts: readonly string[] }
-  | { readonly kind: "reject" }
-  | { readonly kind: "busy"; readonly label: string };
+export type PaneEvidence = PaneItem["evidence"][number];
 
-export type ReviewState = {
-  readonly items: readonly PaneItem[];
-  readonly index: number;
-  readonly mode: PaneMode;
-  readonly expanded: readonly number[];
-  readonly notice: string | null;
-  readonly pending: number;
-};
+export type PaneEdit = Extract<PaneItem["change"], { kind: "edit" }>["edits"][number];
 
 export type ReviewActions = {
-  readonly accept: (edits: ReadonlyArray<{ oldText: string; newText: string }> | null) => void;
+  readonly accept: (edits: readonly PaneEdit[] | null) => void;
   readonly acceptEdited: () => void;
   readonly reject: (reason: string) => void;
   readonly handoff: () => void;
   readonly next: () => void;
+  readonly edit: () => void;
   readonly setMode: (mode: PaneMode) => void;
   readonly toggleEvidence: (index: number) => void;
   readonly setDraft: (index: number, value: string) => void;
@@ -81,7 +52,7 @@ function isPaneEvidence(value: JsonValue): value is PaneEvidence {
   );
 }
 
-function isPaneEdit(value: JsonValue): value is { readonly oldText: string; readonly newText: string } {
+function isPaneEdit(value: JsonValue): value is PaneEdit {
   return isJsonObject(value) && isString(value["oldText"]) && isString(value["newText"]);
 }
 
@@ -139,6 +110,7 @@ export function displayPath(path: string, repoRoot: string | null): string {
 export function drawReview(
   el: PaneElements,
   state: ReviewState,
+  drafts: readonly string[],
   actions: ReviewActions,
   bodyColumns: number,
 ): RenderElement {
@@ -204,16 +176,7 @@ export function drawReview(
             </Button>
           )}
           {isEdit && (
-            <Button
-              key="edit"
-              hotkey="m"
-              onPress={() =>
-                actions.setMode({
-                  kind: "edit",
-                  drafts: item.change.kind === "edit" ? item.change.edits.map((edit) => toDraft(edit.newText)) : [],
-                })
-              }
-            >
+            <Button key="edit" hotkey="m" onPress={() => actions.edit()}>
               Modifier
             </Button>
           )}
@@ -232,7 +195,7 @@ export function drawReview(
         <Box flexDirection="column">
           <Text dimColor>Nouveau texte, une ligne par modification ; ⏎ marque un saut de ligne.</Text>
           {Input !== undefined &&
-            state.mode.drafts.map((draft, index) => (
+            drafts.map((draft, index) => (
               <Input
                 key={`draft-${index}`}
                 label={`Modification ${index + 1}`}

@@ -1,8 +1,10 @@
 import type { HindsightConfig } from "../domain/config.ts";
 import type { JsonObject, JsonValue } from "../domain/json.ts";
-import type { Host } from "./host.ts";
-import type { PaneItem, PaneMode, ReviewActions, ReviewState } from "./review-pane.tsx";
+import type { Host, ReviewState } from "./host.ts";
+import type { PaneItem, ReviewActions } from "./review-pane.tsx";
 import type { EngineInterface, Register } from "claude-code";
+
+import { atom, read, update } from "claude-code";
 
 import { defaultConfig, readConfig } from "../domain/config.ts";
 import { fromDraft, toDraft } from "../domain/diff.ts";
@@ -15,19 +17,20 @@ import { noticeLine } from "./notice.ts";
 import { drawReview, emptyReview, isPaneItem } from "./review-pane.tsx";
 import { pruneStore, readState, writeState } from "./state.ts";
 
-const COMMAND = "hindsight";
-
 const PANE = "hindsight-review";
 
 const HUMAN_ORIGINS = new Set(["composer", "bridge"]);
 
 const DECIDE_TIMEOUT_MS = 10 * 60 * 1000;
 
+const REVIEW = atom({ plugin: "hindsight", key: "review" } as const, emptyReview);
+
 let config: HindsightConfig = defaultConfig;
 
 let isInteractive = true;
 
-let review: ReviewState = emptyReview;
+/** The texts typed in the edit mode: a `$.state` write per keystroke would redraw the field under the typing. */
+let drafts: readonly string[] = [];
 
 function makeHost($: EngineInterface): Host {
   return {
@@ -44,6 +47,10 @@ function makeHost($: EngineInterface): Host {
     storeSet: async (key, value) => $.store.set(key, value),
     storeDelete: async (key) => $.store.delete(key),
     storeKeys: async () => $.store.keys(),
+    reviewState: async () => read($, REVIEW),
+    updateReview: async (change) => {
+      await update($, REVIEW, change);
+    },
     run: async (argv, init) => $.process.run([...argv], init),
     classify: async (text, labels, model) => $.model.classify(text, labels, model === null ? undefined : { model }),
     fork: async (prompt) => $.model.fork({ prompt }),
@@ -149,9 +156,9 @@ function toPaneItems(answer: JsonValue): Pick<ReviewState, "items" | "pending"> 
   return { items, pending: numberField(answer, "pending") ?? items.length };
 }
 
-async function openReview(host: Host, open: (focus: boolean) => Promise<boolean>, redraw: () => void): Promise<void> {
+async function openReview(host: Host, open: (focus: boolean) => Promise<boolean>): Promise<void> {
   const listed = toPaneItems(await runCli(host, ["review", "list"]));
-  review = { ...emptyReview, items: listed.items, pending: listed.pending };
+  await host.updateReview(() => ({ ...emptyReview, items: listed.items, pending: listed.pending }));
 
   if (listed.items.length === 0) {
     host.toast("aucune Proposal en attente");
@@ -159,15 +166,9 @@ async function openReview(host: Host, open: (focus: boolean) => Promise<boolean>
     return;
   }
 
-  redraw();
-
   if (!(await open(true))) {
     host.toast("élargis le terminal pour voir le panneau de Review");
   }
-}
-
-function currentItem(): PaneItem | undefined {
-  return review.items[review.index];
 }
 
 function decisionLabel(kind: JsonValue | undefined): string {
@@ -182,20 +183,20 @@ function decisionLabel(kind: JsonValue | undefined): string {
   return "en Handoff";
 }
 
-function dropCurrent(): void {
-  const items = review.items.filter((_, index) => index !== review.index);
-  review = {
-    ...review,
+function dropCurrent(state: ReviewState): ReviewState {
+  const items = state.items.filter((_, index) => index !== state.index);
+
+  return {
+    ...state,
     items,
-    index: Math.min(review.index, Math.max(0, items.length - 1)),
+    index: Math.min(state.index, Math.max(0, items.length - 1)),
     mode: { kind: "view" },
     expanded: [],
   };
 }
 
-async function decide(host: Host, body: JsonObject, redraw: () => void): Promise<void> {
-  review = { ...review, mode: { kind: "busy", label: "Décision en cours…" }, notice: null };
-  redraw();
+async function decide(host: Host, body: JsonObject): Promise<void> {
+  await host.updateReview((state) => ({ ...state, mode: { kind: "busy", label: "Décision en cours…" }, notice: null }));
 
   try {
     const answer = await runCli(host, ["review", "decide"], {
@@ -207,103 +208,95 @@ async function decide(host: Host, body: JsonObject, redraw: () => void): Promise
 
     if (kind === "refused") {
       const reason = textField(answer, "reason") ?? "refusée";
-      review = { ...review, mode: { kind: "view" }, notice: `Décision refusée : ${reason}` };
+      await host.updateReview((state) => ({
+        ...state,
+        mode: { kind: "view" },
+        notice: `Décision refusée : ${reason}`,
+      }));
     } else {
       host.toast(`Proposal ${decisionLabel(kind)}`);
-      dropCurrent();
+      await host.updateReview(dropCurrent);
     }
   } catch (error) {
-    review = { ...review, mode: { kind: "view" }, notice: describe(error) };
+    await host.updateReview((state) => ({ ...state, mode: { kind: "view" }, notice: describe(error) }));
   }
-
-  redraw();
 }
 
-function paneActions(host: Host, redraw: () => void): ReviewActions {
+function paneActions(host: Host): ReviewActions {
+  const change = (fn: (state: ReviewState) => ReviewState): void => {
+    void host.updateReview(fn).catch(logFailure(host, "review"));
+  };
+
+  const onCurrent = (act: (item: PaneItem, state: ReviewState) => Promise<void>): void => {
+    const run = async (): Promise<void> => {
+      const state = await host.reviewState();
+      const item = state.items[state.index];
+
+      if (item !== undefined) {
+        await act(item, state);
+      }
+    };
+
+    void run().catch(logFailure(host, "review"));
+  };
+
   return {
-    accept: (edits) => {
-      const item = currentItem();
+    accept: (edits) => onCurrent(async (item) => decide(host, { id: item.id, decision: "accept", edits })),
+    acceptEdited: () =>
+      onCurrent(async (item, state) => {
+        if (item.change.kind !== "edit" || state.mode.kind !== "edit") {
+          return;
+        }
 
-      if (item === undefined) {
-        return;
-      }
+        const edits = item.change.edits.map((edit, index) => ({
+          oldText: edit.oldText,
+          newText: fromDraft(drafts[index] ?? toDraft(edit.newText)),
+        }));
 
-      void decide(host, { id: item.id, decision: "accept", edits }, redraw);
-    },
-    acceptEdited: () => {
-      const item = currentItem();
+        await decide(host, { id: item.id, decision: "accept", edits });
+      }),
+    reject: (reason) =>
+      onCurrent(async (item) => {
+        if (reason.trim() === "") {
+          await host.updateReview((state) => ({ ...state, notice: "Un rejet demande une raison." }));
 
-      if (item?.change.kind !== "edit" || review.mode.kind !== "edit") {
-        return;
-      }
+          return;
+        }
 
-      const drafts = review.mode.drafts;
+        await decide(host, { id: item.id, decision: "reject", reason: reason.trim() });
+      }),
+    handoff: () => onCurrent(async (item) => decide(host, { id: item.id, decision: "handoff" })),
+    next: () =>
+      change((state) =>
+        state.items.length === 0
+          ? state
+          : {
+              ...state,
+              index: (state.index + 1) % state.items.length,
+              mode: { kind: "view" },
+              expanded: [],
+              notice: null,
+            },
+      ),
+    edit: () =>
+      onCurrent(async (item) => {
+        if (item.change.kind !== "edit") {
+          return;
+        }
 
-      const edits = item.change.edits.map((edit, index) => ({
-        oldText: edit.oldText,
-        newText: fromDraft(drafts[index] ?? toDraft(edit.newText)),
-      }));
-
-      void decide(host, { id: item.id, decision: "accept", edits }, redraw);
-    },
-    reject: (reason) => {
-      const item = currentItem();
-
-      if (item === undefined) {
-        return;
-      }
-
-      if (reason.trim() === "") {
-        review = { ...review, notice: "Un rejet demande une raison." };
-        redraw();
-
-        return;
-      }
-
-      void decide(host, { id: item.id, decision: "reject", reason: reason.trim() }, redraw);
-    },
-    handoff: () => {
-      const item = currentItem();
-
-      if (item === undefined) {
-        return;
-      }
-
-      void decide(host, { id: item.id, decision: "handoff" }, redraw);
-    },
-    next: () => {
-      if (review.items.length === 0) {
-        return;
-      }
-
-      review = {
-        ...review,
-        index: (review.index + 1) % review.items.length,
-        mode: { kind: "view" },
-        expanded: [],
-        notice: null,
-      };
-      redraw();
-    },
-    setMode: (mode: PaneMode) => {
-      review = { ...review, mode, notice: null };
-      redraw();
-    },
-    toggleEvidence: (index) => {
-      const expanded = review.expanded.includes(index)
-        ? review.expanded.filter((i) => i !== index)
-        : [...review.expanded, index];
-
-      review = { ...review, expanded };
-      redraw();
-    },
+        drafts = item.change.edits.map((edit) => toDraft(edit.newText));
+        await host.updateReview((state) => ({ ...state, mode: { kind: "edit" }, notice: null }));
+      }),
+    setMode: (mode) => change((state) => ({ ...state, mode, notice: null })),
+    toggleEvidence: (index) =>
+      change((state) => ({
+        ...state,
+        expanded: state.expanded.includes(index)
+          ? state.expanded.filter((i) => i !== index)
+          : [...state.expanded, index],
+      })),
     setDraft: (index, value) => {
-      if (review.mode.kind !== "edit") {
-        return;
-      }
-
-      const drafts = review.mode.drafts.map((draft, i) => (i === index ? value : draft));
-      review = { ...review, mode: { kind: "edit", drafts } };
+      drafts = drafts.map((draft, i) => (i === index ? value : draft));
     },
   };
 }
@@ -322,11 +315,7 @@ async function fillHandoff(host: Host): Promise<void> {
   host.toast("instructions du Handoff dans le prompt, à envoyer si tu veux");
 }
 
-async function runCommand(
-  host: Host,
-  args: string,
-  pane: { open: (focus: boolean) => Promise<boolean>; redraw: () => void },
-): Promise<void> {
+async function runCommand(host: Host, args: string, open: (focus: boolean) => Promise<boolean>): Promise<void> {
   const [verb = "status"] = args.trim().split(/\s+/);
 
   switch (verb) {
@@ -344,7 +333,7 @@ async function runCommand(
     }
 
     case "review": {
-      await openReview(host, pane.open, pane.redraw);
+      await openReview(host, open);
 
       return;
     }
@@ -377,7 +366,7 @@ export const register: Register = (on) => {
 
     try {
       await $.command.register({
-        name: COMMAND,
+        name: "hindsight",
         description: "review, status, debrief, learn, handoff",
         argumentHint: "review|status|debrief|learn|handoff",
       });
@@ -413,35 +402,25 @@ export const register: Register = (on) => {
     return result;
   });
 
-  on("command.run", { command: COMMAND }, async ($, e) => {
+  on("command.run", { command: "hindsight" }, async ($, e) => {
     const host = makeHost($);
 
-    const pane = {
-      open: async (focus: boolean): Promise<boolean> => {
-        const opened = await $.ui.open(
-          focus
-            ? { id: PANE, title: "hindsight · Review", focus: true, closeOnEscape: true, rows: 30 }
-            : { id: PANE, title: "hindsight · Review" },
-        );
+    const open = async (focus: boolean): Promise<boolean> => {
+      const opened = await $.ui.open(
+        focus
+          ? { id: PANE, title: "hindsight · Review", focus: true, closeOnEscape: true, rows: 30 }
+          : { id: PANE, title: "hindsight · Review" },
+      );
 
-        return opened.isPlaced;
-      },
-      redraw: (): void => $.ui.invalidate("ui.render"),
+      return opened.isPlaced;
     };
 
-    void runCommand(host, e.args, pane).catch(toastFailure(host));
+    void runCommand(host, e.args, open).catch(toastFailure(host));
 
     return {};
   });
 
-  on("ui.render", { component: "Pane", requestId: PANE }, ($, e) => {
-    const host = makeHost($);
-
-    return drawReview(
-      $.ui.resolve(e),
-      review,
-      paneActions(host, () => $.ui.invalidate("ui.render")),
-      e.props.bodyColumns,
-    );
-  });
+  on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) =>
+    drawReview($.ui.resolve(e), await read($, REVIEW), drafts, paneActions(makeHost($)), e.props.bodyColumns),
+  );
 };

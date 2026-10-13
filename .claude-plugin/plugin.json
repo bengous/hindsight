@@ -7,5 +7,6 @@
     "email": "bengous@protonmail.com"
   },
   "license": "MIT",
-  "keywords": ["rules", "agents-md", "debrief", "function-hooks", "review"]
+  "keywords": ["rules", "agents-md", "debrief", "function-hooks", "review"],
+  "types": "./types/index.d.ts"
 }

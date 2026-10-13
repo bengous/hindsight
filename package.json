@@ -11,8 +11,8 @@
     "typecheck": "tsc -p tsconfig.bun.json && tsc -p tsconfig.mod.json",
     "lint": "oxlint -c oxlint.config.ts --format=unix .",
     "lint:fix": "oxlint -c oxlint.config.ts --fix --quiet .; bun run format",
-    "format": "oxfmt --write -c oxfmt.config.ts 'src/**/*.{ts,tsx}' 'fixtures/**/*.ts' 'tools/**/*.ts' 'docs/plan/*.ts' 'docs/plan/tsconfig.json' '*.config.ts' package.json 'tsconfig*.json' bunfig.toml",
-    "format:check": "oxfmt --check -c oxfmt.config.ts 'src/**/*.{ts,tsx}' 'fixtures/**/*.ts' 'tools/**/*.ts' 'docs/plan/*.ts' 'docs/plan/tsconfig.json' '*.config.ts' package.json 'tsconfig*.json' bunfig.toml"
+    "format": "oxfmt --write -c oxfmt.config.ts 'src/**/*.{ts,tsx}' 'fixtures/**/*.ts' 'tools/**/*.ts' 'docs/plan/*.ts' 'docs/plan/tsconfig.json' 'types/index.d.ts' '*.config.ts' package.json 'tsconfig*.json' bunfig.toml",
+    "format:check": "oxfmt --check -c oxfmt.config.ts 'src/**/*.{ts,tsx}' 'fixtures/**/*.ts' 'tools/**/*.ts' 'docs/plan/*.ts' 'docs/plan/tsconfig.json' 'types/index.d.ts' '*.config.ts' package.json 'tsconfig*.json' bunfig.toml"
   },
   "dependencies": {
     "@effect/platform-bun": "4.0.4",

@@ -83,7 +83,14 @@ add(
     swap: "Un autre moteur de hooks remplace ce fichier et <code>host.ts</code> ; le reste du mod lit un Host et ne change pas.",
     facts: [
       ["Commandes", "review · status · debrief · learn · handoff (status par défaut)"],
-      ["Variables de module", "config, isInteractive, review : perdues à un rechargement"],
+      [
+        "État du panneau",
+        "la valeur $.state hindsight.review, déclarée dans types/index.d.ts ; une écriture redessine",
+      ],
+      [
+        "Variables de module",
+        "config, isInteractive, drafts (le texte en cours de saisie) : perdues à un rechargement",
+      ],
       ["Timer", "le Portail qui passe programme classifyThenDebrief à +1 ms, hors du hook"],
     ],
     warn: "<code>/hindsight debrief</code> ignore sauts et classifieur : seul le verrou de fork s'applique. Un tour de sous-agent est filtré avant le Portail et n'est jamais journalisé.",
@@ -100,13 +107,18 @@ add(
   {
     kicker: "src/mod/host.ts · makeHost dans register.ts",
     title: "Le Host",
-    lead: "L'interface que le mod lit à la place de <code>$</code> : horloge et minuteur, identifiant et dépôt de la session, ses messages, le store, le lanceur de processus, classify, fork, statut, toast, journal de debug, remplissage du prompt. Un faux Host suffit aux specs <code>bun test</code>.",
+    lead: "L'interface que le mod lit à la place de <code>$</code> : horloge et minuteur, identifiant et dépôt de la session, ses messages, le store, l'état du panneau (lecture et mise à jour de l'atom hindsight.review), le lanceur de processus, classify, fork, statut, toast, journal de debug, remplissage du prompt. Un faux Host suffit aux specs <code>bun test</code>.",
     io: [
       ["Reçoit", "les appels de gate.ts, debrief.ts, cli-client.ts, notice.ts"],
       ["Produit", "les appels $ correspondants, un pour un"],
     ],
     swap: "Ajouter une méthode touche trois fichiers ensemble : <code>host.ts</code>, <code>makeHost</code> dans register.ts, et le faux Host de <code>mod.spec.ts</code>.",
-    facts: [["Hors Host", "$.command.register, $.ui.open, $.ui.invalidate, $.ui.resolve, dans register.ts seulement"]],
+    facts: [
+      [
+        "Hors Host",
+        "$.command.register, $.ui.open, $.ui.resolve et la lecture de l'atom dans ui.render, dans register.ts seulement",
+      ],
+    ],
   },
   { ...MOD, couples: ["api"] },
 );
@@ -245,7 +257,7 @@ add(
     io: [
       [
         "Reçoit",
-        "les items de review list, chacun vérifié par isPaneItem (une forme inconnue fait échouer la commande), l'état review du module",
+        "les items de review list, chacun vérifié par isPaneItem (une forme inconnue fait échouer la commande), l'état hindsight.review de $.state, les brouillons en cours de saisie",
       ],
       ["Produit", "les corps de review decide : accept (edits ou null), reject (raison), handoff"],
     ],

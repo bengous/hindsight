@@ -6,6 +6,12 @@
     "jsxFactory": "h",
     "jsxFragmentFactory": "Fragment"
   },
-  "include": ["types/claude-code.d.ts", "src/mod/**/*.ts", "src/mod/**/*.tsx", "src/domain/**/*.ts"],
+  "include": [
+    "types/claude-code.d.ts",
+    "types/index.d.ts",
+    "src/mod/**/*.ts",
+    "src/mod/**/*.tsx",
+    "src/domain/**/*.ts"
+  ],
   "exclude": ["src/**/*.spec.ts"]
 }

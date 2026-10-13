@@ -30,6 +30,13 @@
     ]
   },
   "files": ["src/mod/mod.spec.ts"],
-  "include": ["src/**/*.ts", "fixtures/**/*.ts", "tools/**/*.ts", "*.config.ts", "types/claude-code.d.ts"],
+  "include": [
+    "src/**/*.ts",
+    "fixtures/**/*.ts",
+    "tools/**/*.ts",
+    "*.config.ts",
+    "types/claude-code.d.ts",
+    "types/index.d.ts"
+  ],
   "exclude": ["src/mod/**", "tools/oxlint/anti-slop/**"]
 }

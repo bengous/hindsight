@@ -1,5 +1,8 @@
 import type { JsonValue } from "../domain/json.ts";
-import type { ModelForkResult, ProcessRunInit, ProcessRunResult, SessionMessage } from "claude-code";
+import type { ModelForkResult, PluginState, ProcessRunInit, ProcessRunResult, SessionMessage } from "claude-code";
+
+/** The pane's state as the contract in types/index.d.ts declares it on PluginState: written once, read from here. */
+export type ReviewState = PluginState["hindsight"]["review"];
 
 /** What the mod's logic needs from the engine, built from `$` in register.ts alone so that bun:test can fake it. */
 export type Host = {
@@ -12,6 +15,8 @@ export type Host = {
   readonly storeSet: (key: string, value: JsonValue) => Promise<void>;
   readonly storeDelete: (key: string) => Promise<void>;
   readonly storeKeys: () => Promise<readonly string[]>;
+  readonly reviewState: () => Promise<ReviewState>;
+  readonly updateReview: (change: (state: ReviewState) => ReviewState) => Promise<void>;
   readonly run: (argv: readonly string[], init?: ProcessRunInit) => Promise<ProcessRunResult>;
   readonly classify: (text: string, labels: readonly string[], model: string | null) => Promise<string | undefined>;
   readonly fork: (prompt: string) => Promise<ModelForkResult>;
