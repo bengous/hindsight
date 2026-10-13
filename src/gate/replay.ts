@@ -36,12 +36,17 @@ export function toToolUse(event: ToolEvent): ToolUse {
   };
 }
 
-type Turn = { readonly facts: TurnFacts; readonly at: string; readonly aborted: boolean };
+type Turn = {
+  readonly text: string;
+  readonly tools: readonly ToolUse[];
+  readonly at: string;
+  readonly aborted: boolean;
+};
 
 /** Cuts a session's events into turns: a human message opens one, the tools until the next close it. */
 export function turnsOf(events: readonly SessionEvent[]): readonly Turn[] {
   const turns: Turn[] = [];
-  let facts = emptyFacts;
+  let text = "";
   let open = false;
   let at = "";
   let aborted = false;
@@ -52,8 +57,7 @@ export function turnsOf(events: readonly SessionEvent[]): readonly Turn[] {
       return;
     }
 
-    turns.push({ facts: addToolUses(facts, tools), at, aborted });
-    facts = emptyFacts;
+    turns.push({ text, tools, at, aborted });
     tools = [];
     open = false;
     aborted = false;
@@ -63,7 +67,7 @@ export function turnsOf(events: readonly SessionEvent[]): readonly Turn[] {
     switch (event.kind) {
       case "human": {
         close();
-        facts = addHumanText(turns.at(-1)?.aborted === true ? markInterrupted(facts) : facts, event.text);
+        text = event.text;
         open = true;
         at = event.timestamp;
         break;
@@ -101,6 +105,14 @@ type Tally = {
   sampleBriefs: string[];
 };
 
+/**
+ * The facts the Gate sees at the end of a turn, built as the mod builds them: the human text joins the
+ * facts carried since the previous pass, so its markers read the earlier prompts and refusals, then the tools.
+ */
+export function turnFacts(carried: TurnFacts, turn: Turn): TurnFacts {
+  return addToolUses(addHumanText(carried, turn.text), turn.tools);
+}
+
 /** Replays the Gate's code over one session: facts accumulate across turns until a pass resets them. */
 export function replaySession(
   record: SessionRecord,
@@ -115,18 +127,7 @@ export function replaySession(
 
   for (const turn of turnsOf(record.events)) {
     tally.turns += 1;
-
-    const facts: TurnFacts = {
-      ...turn.facts,
-      humanTexts: [...carried.humanTexts, ...turn.facts.humanTexts],
-      edits: [...carried.edits, ...turn.facts.edits],
-      toolCalls: carried.toolCalls + turn.facts.toolCalls,
-      toolErrors: carried.toolErrors + turn.facts.toolErrors,
-      refusedTools: [...carried.refusedTools, ...turn.facts.refusedTools],
-      gitCommits: carried.gitCommits + turn.facts.gitCommits,
-      prompts: carried.prompts + turn.facts.prompts,
-    };
-
+    const facts = turnFacts(carried, turn);
     const now = new Date(turn.at).getTime();
     const day = utcDay(turn.at);
 
