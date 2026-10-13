@@ -25,8 +25,9 @@ Out-of-band upkeep of the Rule Files coding agents load. A Claude Code mod runs 
 - `src/store/`: the `bun:sqlite` Store service, migrations, queries. `src/transcripts/`: JSONL reading, one session with its continuations. `src/debrief/`: verification and storage of a Debrief's answer. `src/gate/`: the replay. `src/learn/`: schema, prompt, code gates, `claude -p` runner, Learn and Prune. `src/rules/`: inventory, markdown, globs, stale checks, apply and commit. `src/review/`: the output port.
 - `plans/`: session records: task checklists and follow-up prompts for an agent.
 - `docs/plan/`: the interactive plan of the project (product, state machines, architecture), a Bun workspace of data files and a drawing engine built into one page; `bun docs/plan/check.ts` validates the data, `bun docs/plan/build.ts` writes `docs/plan/dist/hindsight.html`.
+- `tools/oxlint/`: the lint plugins. `anti-slop/` is a vendored copy of `dmmulroy/anti-slop`, never edited by hand, refreshed by its upstream `install-anti-slop` procedure, its source commit in `UPSTREAM.md`; `hindsight/` holds the repository's own rules.
 - `.claude/rules/mod.md` and `.claude/rules/cli.md` hold the path-scoped detail; this file stays the index.
 
 ## Commands
 
-`bun test`, `claude plugin test .`, `claude plugin validate .`, `bun run typecheck` (`tsc -p docs/plan/tsconfig.json` for the plan), `bun run lint`, `bun run format`. One suite: `bun test src/domain/gate.spec.ts`; one test: `bun test --test-name-pattern <regex>`. Run the CLI with `bun src/cli/main.ts <command>`; a session with the mod: `claude --plugin-dir .`, or `/reload-plugins` where the plugin is installed from this checkout.
+`bun test`, `claude plugin test .`, `claude plugin validate .`, `bun run typecheck` (`tsc -p docs/plan/tsconfig.json` for the plan), `bun run lint`, `bun run lint:fix` (the autofixes, then the formatter), `bun run format`. One suite: `bun test src/domain/gate.spec.ts`; one test: `bun test --test-name-pattern <regex>`. Run the CLI with `bun src/cli/main.ts <command>`; a session with the mod: `claude --plugin-dir .`, or `/reload-plugins` where the plugin is installed from this checkout.
