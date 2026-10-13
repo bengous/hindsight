@@ -1,5 +1,9 @@
+import type { JsonValue } from "../domain/json.ts";
 import type { Host } from "./host.ts";
 
+import { isJsonObject, isNumber, numberField, parseJson, textField } from "../domain/json.ts";
+
+// @effect-diagnostics-next-line extendsNativeError:off -- src/mod imports no Effect: this error never enters an Effect failure channel.
 export class CliError extends Error {
   constructor(
     readonly argv: readonly string[],
@@ -18,13 +22,10 @@ export async function runCli(
   host: Host,
   args: readonly string[],
   options: { readonly stdin?: string; readonly timeoutMs?: number } = {},
-): Promise<unknown> {
+): Promise<JsonValue> {
   const argv = ["bun", `${host.pluginRoot}/src/cli/main.ts`, ...args, "--json"];
-
-  const init = {
-    timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-    ...(options.stdin === undefined ? {} : { stdin: options.stdin }),
-  };
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const init = options.stdin === undefined ? { timeoutMs } : { timeoutMs, stdin: options.stdin };
 
   const result = await host.run(argv, init);
 
@@ -35,17 +36,13 @@ export async function runCli(
   const line = result.stdout.trim().split("\n").at(-1) ?? "";
 
   try {
-    return JSON.parse(line);
+    return parseJson(line);
   } catch {
     throw new CliError(argv, result.exitCode, `not a JSON line: ${line.slice(0, 200)}`);
   }
 }
 
-type Json = Readonly<Record<string, unknown>>;
-
-const isJson = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
-
-export async function cliConfig(host: Host): Promise<unknown> {
+export async function cliConfig(host: Host): Promise<JsonValue> {
   return runCli(host, ["config"]);
 }
 
@@ -53,10 +50,12 @@ export type StatusSummary = { readonly pendingProposals: number; readonly failur
 
 export async function cliStatus(host: Host): Promise<StatusSummary> {
   const answer = await runCli(host, ["status"]);
-  const pending = isJson(answer) ? answer["pendingProposals"] : 0;
-  const failures = isJson(answer) && Array.isArray(answer["failures"]) ? answer["failures"].length : 0;
+  const failures = isJsonObject(answer) ? answer["failures"] : undefined;
 
-  return { pendingProposals: typeof pending === "number" ? pending : 0, failures };
+  return {
+    pendingProposals: numberField(answer, "pendingProposals") ?? 0,
+    failures: Array.isArray(failures) ? failures.length : 0,
+  };
 }
 
 export async function cliDebriefStart(host: Host, sessionId: string, repoRoot: string | null): Promise<string> {
@@ -68,9 +67,9 @@ export async function cliDebriefStart(host: Host, sessionId: string, repoRoot: s
     ...(repoRoot === null ? [] : ["--repo", repoRoot]),
   ]);
 
-  const id = isJson(answer) ? answer["id"] : undefined;
+  const id = textField(answer, "id");
 
-  if (typeof id !== "string") {
+  if (id === null) {
     throw new TypeError("debrief start answered without an id");
   }
 
@@ -95,19 +94,24 @@ export async function cliDebriefRecord(
     timeoutMs: 120_000,
   });
 
-  if (!isJson(answer) || typeof answer["status"] !== "string") {
+  const status = textField(answer, "status");
+
+  if (status === null) {
     throw new Error("debrief record answered out of shape");
   }
 
-  const notes = isJson(answer["notes"]) ? answer["notes"] : {};
-  const count = (key: string): number => (typeof notes[key] === "number" ? notes[key] : 0);
+  const notes = isJsonObject(answer) ? answer["notes"] : undefined;
+  const rejected = isJsonObject(answer) ? answer["rejected"] : undefined;
+  const count = (key: string): number => numberField(notes, key) ?? 0;
 
   return {
-    status: answer["status"],
-    failure: typeof answer["failure"] === "string" ? answer["failure"] : null,
+    status,
+    failure: textField(answer, "failure"),
     notes: { steers: count("steers"), observations: count("observations"), staleRules: count("staleRules") },
-    proposals: typeof answer["proposals"] === "number" ? answer["proposals"] : 0,
-    rejected: isJson(answer["rejected"]) ? (answer["rejected"] as Record<string, number>) : {},
+    proposals: numberField(answer, "proposals") ?? 0,
+    rejected: isJsonObject(rejected)
+      ? Object.fromEntries(Object.entries(rejected).filter((entry): entry is [string, number] => isNumber(entry[1])))
+      : {},
   };
 }
 
@@ -122,7 +126,9 @@ export type GateLogEntry = {
 
 /** Fire and forget: a journal line never holds the session. */
 export function cliGateLog(host: Host, entry: GateLogEntry): void {
-  void runCli(host, ["gate", "log"], { stdin: JSON.stringify(entry) }).catch((error: unknown) => {
-    host.log(`gate log failed: ${error instanceof Error ? error.message : String(error)}`);
-  });
+  const logFailure = (cause: unknown): void => {
+    host.log(`gate log failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+  };
+
+  void runCli(host, ["gate", "log"], { stdin: JSON.stringify(entry) }).catch(logFailure);
 }

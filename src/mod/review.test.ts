@@ -1,6 +1,9 @@
+import type { JsonValue } from "../domain/json.ts";
 import type { On } from "claude-code";
 
 import { describe, expect, mock, test } from "claude-code/testing";
+
+import { isJsonObject, parseJson } from "../domain/json.ts";
 
 const SESSION = { cwd: "/repo", surface: "terminal", isInteractive: true } as const;
 
@@ -51,13 +54,52 @@ const description = {
 };
 
 type World = {
-  readonly decisions: unknown[];
+  readonly decisions: JsonValue[];
   readonly toasts: string[];
   readonly opened: unknown[];
   readonly clock: ReturnType<typeof mock.clock>;
 };
 
-function build(on: On, items: readonly unknown[]): World {
+function decided(decision: JsonValue | undefined): string {
+  if (decision === "accept") {
+    return "accepted";
+  }
+
+  if (decision === "reject") {
+    return "rejected";
+  }
+
+  return "handed_off";
+}
+
+function cliAnswer(world: World, items: readonly JsonValue[], command: string, stdin: string | undefined): JsonValue {
+  switch (command) {
+    case "status": {
+      return { pendingProposals: items.length, failures: [] };
+    }
+
+    case "review list": {
+      return { items, pending: items.length, expired: 0, superseded: 0 };
+    }
+
+    case "review decide": {
+      const body = parseJson(stdin ?? "{}");
+      world.decisions.push(body);
+
+      return { kind: decided(isJsonObject(body) ? body["decision"] : undefined) };
+    }
+
+    case "handoff prepare": {
+      return { id: "h1", instructions: "hindsight handoff: do it", proposals: 1 };
+    }
+
+    default: {
+      return {};
+    }
+  }
+}
+
+function build(on: On, items: readonly JsonValue[]): World {
   const world: World = { decisions: [], toasts: [], opened: [], clock: mock.clock(on, { now: 1_000_000 }) };
   mock.store(on);
   on("session.start", (_, e) => ({ cwd: e.cwd }));
@@ -84,36 +126,10 @@ function build(on: On, items: readonly unknown[]): World {
       .slice(0, 2)
       .join(" ");
 
-    let answer: unknown = {};
-
-    if (command === "config") {
-      answer = {};
-    }
-
-    if (command === "status") {
-      answer = { pendingProposals: items.length, failures: [] };
-    }
-
-    if (command === "review list") {
-      answer = { items, pending: items.length, expired: 0, superseded: 0 };
-    }
-
-    if (command === "review decide") {
-      const body = JSON.parse(e.init?.stdin ?? "{}") as { decision: string };
-      world.decisions.push(body);
-      answer = {
-        kind: body.decision === "accept" ? "accepted" : body.decision === "reject" ? "rejected" : "handed_off",
-      };
-    }
-
-    if (command === "handoff prepare") {
-      answer = { id: "h1", instructions: "hindsight handoff: do it", proposals: 1 };
-    }
-
     return {
       value: {
         exitCode: 0,
-        stdout: `${JSON.stringify(answer)}\n`,
+        stdout: `${JSON.stringify(cliAnswer(world, items, command, e.init?.stdin))}\n`,
         stderr: "",
         isStdoutTruncated: false,
         isStderrTruncated: false,
@@ -132,7 +148,7 @@ describe("the Review pane", () => {
     await world.clock.settle();
     expect(world.opened).toHaveLength(1);
 
-    for (const surface of ["terminal", "desktop"] as const) {
+    const decideOn = async (surface: "terminal" | "desktop"): Promise<void> => {
       const before = world.decisions.length;
 
       const ui = await $.ui.mount({
@@ -160,7 +176,10 @@ describe("the Review pane", () => {
       await ui.unmount();
       await $.command.run({ command: "hindsight", args: "review", ...RUN });
       await world.clock.settle();
-    }
+    };
+
+    await decideOn("terminal");
+    await decideOn("desktop");
   });
 
   test("accept sends the edits as drawn, and edit then accept sends the human's text", async ($, on) => {

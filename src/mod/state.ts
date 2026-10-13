@@ -1,7 +1,9 @@
 import type { TurnFacts } from "../domain/facts.ts";
+import type { JsonValue } from "../domain/json.ts";
 import type { Host } from "./host.ts";
 
 import { emptyFacts } from "../domain/facts.ts";
+import { isJsonObject, isNumber } from "../domain/json.ts";
 
 /** What one session accumulates between Debriefs, kept in `$.store` so that a reload or /clear loses nothing. */
 export type SessionState = {
@@ -30,8 +32,14 @@ export const freshState = (now: number): SessionState => ({
   updatedAt: now,
 });
 
-const isState = (value: unknown): value is SessionState =>
-  typeof value === "object" && value !== null && "facts" in value && "updatedAt" in value;
+const isState = (value: JsonValue | undefined): value is SessionState =>
+  isJsonObject(value) &&
+  isJsonObject(value["facts"]) &&
+  (value["lastDebriefAt"] === null || isNumber(value["lastDebriefAt"])) &&
+  isNumber(value["debriefsInSession"]) &&
+  typeof value["forkRunning"] === "boolean" &&
+  (value["forkStartedAt"] === null || isNumber(value["forkStartedAt"])) &&
+  isNumber(value["updatedAt"]);
 
 export const FORK_STALE_MS = 15 * 60 * 1000;
 
@@ -43,7 +51,7 @@ export async function readState(host: Host, sessionId: string, now: number): Pro
     return freshState(now);
   }
 
-  const startedAt = typeof stored.forkStartedAt === "number" ? stored.forkStartedAt : null;
+  const startedAt = stored.forkStartedAt;
 
   if (stored.forkRunning && (startedAt === null || now - startedAt > FORK_STALE_MS)) {
     return { ...stored, forkRunning: false, forkStartedAt: null };
@@ -77,7 +85,7 @@ export function utcDayOf(now: number): string {
 export async function debriefsToday(host: Host, now: number): Promise<number> {
   const count = await host.storeGet(`${DAY_PREFIX}${utcDayOf(now)}`);
 
-  return typeof count === "number" ? count : 0;
+  return isNumber(count) ? count : 0;
 }
 
 export async function countDebriefToday(host: Host, now: number): Promise<void> {
@@ -86,25 +94,26 @@ export async function countDebriefToday(host: Host, now: number): Promise<void> 
 
 /** Drops session states older than seven days and day counters older than two. */
 export async function pruneStore(host: Host, now: number): Promise<number> {
-  let dropped = 0;
-
-  for (const key of await host.storeKeys()) {
+  const isExpired = async (key: string): Promise<boolean> => {
     if (key.startsWith(SESSION_PREFIX)) {
       const value = await host.storeGet(key);
 
-      if (!isState(value) || now - value.updatedAt > STATE_TTL_MS) {
-        await host.storeDelete(key);
-        dropped += 1;
-      }
-    } else if (key.startsWith(DAY_PREFIX)) {
+      return !isState(value) || now - value.updatedAt > STATE_TTL_MS;
+    }
+
+    if (key.startsWith(DAY_PREFIX)) {
       const day = new Date(`${key.slice(DAY_PREFIX.length)}T00:00:00.000Z`).getTime();
 
-      if (!Number.isFinite(day) || now - day > DAY_TTL_MS) {
-        await host.storeDelete(key);
-        dropped += 1;
-      }
+      return !Number.isFinite(day) || now - day > DAY_TTL_MS;
     }
-  }
 
-  return dropped;
+    return false;
+  };
+
+  const keys = await host.storeKeys();
+  const expired = await Promise.all(keys.map(isExpired));
+  const dropped = keys.filter((_, index) => expired[index] === true);
+  await Promise.all(dropped.map(async (key) => host.storeDelete(key)));
+
+  return dropped.length;
 }

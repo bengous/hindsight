@@ -148,7 +148,7 @@ export function gateBrief(signals: GateSignals, facts: TurnFacts): string {
 }
 
 /** The classifier's input: the brief and the human's last messages, as data. */
-export function classifierText(brief: string, facts: TurnFacts, maxChars: number = 1500): string {
+export function classifierText(brief: string, facts: TurnFacts, maxChars = 1500): string {
   const recent = facts.humanTexts.slice(-3).map((entry) => `- ${entry.text.slice(0, maxChars)}`);
 
   return [

@@ -1,3 +1,4 @@
+import type { JsonValue } from "../domain/json.ts";
 import type { ModelForkResult, ProcessRunInit, ProcessRunResult, SessionMessage } from "claude-code";
 
 /** What the mod's logic needs from the engine, built from `$` in register.ts alone so that bun:test can fake it. */
@@ -7,8 +8,8 @@ export type Host = {
   readonly sessionId: () => Promise<string>;
   readonly repoRoot: () => Promise<string | null>;
   readonly messages: () => Promise<readonly SessionMessage[]>;
-  readonly storeGet: (key: string) => Promise<unknown>;
-  readonly storeSet: (key: string, value: unknown) => Promise<void>;
+  readonly storeGet: (key: string) => Promise<JsonValue | undefined>;
+  readonly storeSet: (key: string, value: JsonValue) => Promise<void>;
   readonly storeDelete: (key: string) => Promise<void>;
   readonly storeKeys: () => Promise<readonly string[]>;
   readonly run: (argv: readonly string[], init?: ProcessRunInit) => Promise<ProcessRunResult>;

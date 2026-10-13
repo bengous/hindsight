@@ -1,3 +1,4 @@
+import type { JsonValue } from "../domain/json.ts";
 import type { Host } from "./host.ts";
 import type { SessionMessage } from "claude-code";
 
@@ -35,15 +36,14 @@ describe("lastTurnTools", () => {
         },
         { tool_use_id: "3", tool: "Bash", input: { command: "bun test" }, isError: true, text: "exit 1" },
       ]),
-      message("user", "", []),
     ];
 
-    const last = {
-      ...messages[4],
+    const last: SessionMessage = {
+      ...message("user", "", []),
       toolResults: [{ tool_use_id: "3", text: "exit 1", isError: true, result: null }],
-    } as SessionMessage;
+    };
 
-    expect(lastTurnTools([...messages.slice(0, 4), last])).toEqual([
+    expect(lastTurnTools([...messages, last])).toEqual([
       { tool: "Bash", path: null, command: "bun test -u", isError: true, isRefused: true },
       { tool: "Bash", path: null, command: "bun test", isError: true, isRefused: false },
     ]);
@@ -86,7 +86,7 @@ describe("noticeLine", () => {
 
 function fakeHost(
   answer: { exitCode: number; stdout: string; stderr?: string },
-  store = new Map<string, unknown>(),
+  store = new Map<string, JsonValue>(),
 ): Host {
   return {
     pluginRoot: "/plugin",
@@ -116,9 +116,11 @@ function fakeHost(
 describe("runCli", () => {
   test("reads the last stdout line as JSON and names a failure", async () => {
     expect(await runCli(fakeHost({ exitCode: 0, stdout: 'warning\n{"ok":true}\n' }), ["status"])).toEqual({ ok: true });
+    // oxlint-disable-next-line typescript/await-thenable -- bun-types declares `rejects` matchers as returning void, but they return a promise the test must await.
     await expect(
       runCli(fakeHost({ exitCode: 2, stdout: "", stderr: "boom\nlast line" }), ["status"]),
     ).rejects.toBeInstanceOf(CliError);
+    // oxlint-disable-next-line typescript/await-thenable -- bun-types declares `rejects` matchers as returning void, but they return a promise the test must await.
     await expect(runCli(fakeHost({ exitCode: 0, stdout: "not json" }), ["status"])).rejects.toThrow("not a JSON line");
   });
 });
@@ -131,7 +133,7 @@ describe("readState and factsSince", () => {
 
     const host = fakeHost(
       { exitCode: 0, stdout: "{}" },
-      new Map<string, unknown>([
+      new Map<string, JsonValue>([
         ["session:a", stale],
         ["session:b", live],
       ]),
@@ -154,7 +156,7 @@ describe("pruneStore", () => {
   test("drops session states older than seven days and stale day counters", async () => {
     const now = Date.UTC(2026, 9, 13);
 
-    const store = new Map<string, unknown>([
+    const store = new Map<string, JsonValue>([
       ["session:old", { ...freshState(now), updatedAt: now - 8 * 86_400_000 }],
       ["session:new", { ...freshState(now), updatedAt: now - 3_600_000 }],
       ["session:broken", "x"],
@@ -164,6 +166,6 @@ describe("pruneStore", () => {
 
     const host = fakeHost({ exitCode: 0, stdout: "{}" }, store);
     expect(await pruneStore(host, now)).toBe(3);
-    expect([...store.keys()].sort()).toEqual(["day:2026-10-13", "session:new"]);
+    expect([...store.keys()].toSorted()).toEqual(["day:2026-10-13", "session:new"]);
   });
 });

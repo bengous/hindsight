@@ -1,4 +1,5 @@
 import type { HindsightConfig } from "../domain/config.ts";
+import type { JsonValue } from "../domain/json.ts";
 import type { Store } from "../store/db.ts";
 import type { Paths } from "../store/paths.ts";
 
@@ -6,6 +7,7 @@ import { Context, Effect, Layer } from "effect";
 import { existsSync, readFileSync } from "node:fs";
 
 import { readConfig } from "../domain/config.ts";
+import { parseJson } from "../domain/json.ts";
 import { storeLayer } from "../store/db.ts";
 import { hindsightPaths } from "../store/paths.ts";
 
@@ -18,10 +20,10 @@ export function loadConfig(configPath: string): HindsightConfig {
     return readConfig(undefined);
   }
 
-  let parsed: unknown;
+  let parsed: JsonValue;
 
   try {
-    parsed = JSON.parse(readFileSync(configPath, "utf8"));
+    parsed = parseJson(readFileSync(configPath, "utf8"));
   } catch (error) {
     throw new Error(`${configPath}: invalid JSON: ${error instanceof Error ? error.message : String(error)}`, {
       cause: error,

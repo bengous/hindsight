@@ -13,8 +13,8 @@ export type DebriefRun =
 /** How much of the fork's prompt the cache served: the part not read is uncached input or a cache write. */
 export function cacheShareOf(result: Extract<ModelForkResult, { isAnswered: true }>): number {
   const usage = result.usage;
-  const read = usage.cache_read_input_tokens ?? 0;
-  const total = read + usage.input_tokens + (usage.cache_creation_input_tokens ?? 0);
+  const read = usage.cache_read_input_tokens;
+  const total = read + usage.input_tokens + usage.cache_creation_input_tokens;
 
   return total === 0 ? 0 : read / total;
 }

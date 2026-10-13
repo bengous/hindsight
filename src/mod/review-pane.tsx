@@ -1,10 +1,13 @@
-import type { Elements } from "claude-code";
+import type { JsonValue } from "../domain/json.ts";
+import type { Elements, RenderElement } from "claude-code";
 
 import { toDraft, unifiedDiff } from "../domain/diff.ts";
+import { isJsonObject, isNumber, isString } from "../domain/json.ts";
 import { displayText } from "../domain/text.ts";
 
-/** The elements the pane draws with: present on the terminal, the desktop and vscode alike. */
-export type PaneElements = Pick<Elements["terminal"], "Box" | "Text" | "Button" | "Input" | "Code">;
+/** The elements the pane draws with: present on every surface except `Input`, which mobile does not draw. */
+export type PaneElements = Pick<Elements["mobile"], "Box" | "Text" | "Button" | "Code"> &
+  Partial<Pick<Elements["terminal"], "Input">>;
 
 export type PaneEvidence = {
   readonly kind: "quote" | "observation";
@@ -65,6 +68,62 @@ export const emptyReview: ReviewState = {
   pending: 0,
 };
 
+const isTextOrNull = (value: JsonValue | undefined): value is string | null => value === null || isString(value);
+
+function isPaneEvidence(value: JsonValue): value is PaneEvidence {
+  return (
+    isJsonObject(value) &&
+    (value["kind"] === "quote" || value["kind"] === "observation") &&
+    isString(value["at"]) &&
+    isString(value["text"]) &&
+    isTextOrNull(value["message"]) &&
+    isTextOrNull(value["tool"])
+  );
+}
+
+function isPaneEdit(value: JsonValue): value is { readonly oldText: string; readonly newText: string } {
+  return isJsonObject(value) && isString(value["oldText"]) && isString(value["newText"]);
+}
+
+function isPaneChange(value: JsonValue | undefined): value is PaneItem["change"] {
+  if (!isJsonObject(value)) {
+    return false;
+  }
+
+  const edits = value["edits"];
+
+  return value["kind"] === "edit"
+    ? Array.isArray(edits) && edits.every(isPaneEdit)
+    : value["kind"] === "description" && isString(value["text"]);
+}
+
+export function isPaneItem(value: JsonValue): value is PaneItem {
+  if (!isJsonObject(value)) {
+    return false;
+  }
+
+  const evidence = value["evidence"];
+  const prevalence = value["prevalence"];
+
+  return (
+    isString(value["id"]) &&
+    isString(value["targetPath"]) &&
+    isTextOrNull(value["repoRoot"]) &&
+    isTextOrNull(value["verdict"]) &&
+    isString(value["source"]) &&
+    isString(value["claimFr"]) &&
+    isString(value["reasoningFr"]) &&
+    isString(value["lessonEn"]) &&
+    isPaneChange(value["change"]) &&
+    Array.isArray(evidence) &&
+    evidence.every(isPaneEvidence) &&
+    isJsonObject(prevalence) &&
+    isNumber(prevalence["sessions"]) &&
+    isNumber(prevalence["days"]) &&
+    isNumber(prevalence["repos"])
+  );
+}
+
 const TEXT_MAX = 600;
 
 const MESSAGE_MAX = 2000;
@@ -77,7 +136,12 @@ export function displayPath(path: string, repoRoot: string | null): string {
   return path;
 }
 
-export function drawReview(el: PaneElements, state: ReviewState, actions: ReviewActions, bodyColumns: number) {
+export function drawReview(
+  el: PaneElements,
+  state: ReviewState,
+  actions: ReviewActions,
+  bodyColumns: number,
+): RenderElement {
   const { Box, Text, Button, Input, Code } = el;
   const width = Math.max(30, bodyColumns - 2);
   const item = state.items[state.index];
@@ -167,16 +231,17 @@ export function drawReview(el: PaneElements, state: ReviewState, actions: Review
       {state.mode.kind === "edit" && item.change.kind === "edit" && (
         <Box flexDirection="column">
           <Text dimColor>Nouveau texte, une ligne par modification ; ⏎ marque un saut de ligne.</Text>
-          {state.mode.drafts.map((draft, index) => (
-            <Input
-              key={`draft-${index}`}
-              label={`Modification ${index + 1}`}
-              value={draft}
-              {...(index === 0 ? { autoFocus: true as const } : {})}
-              onInput={(value) => actions.setDraft(index, value)}
-              onSubmit={(value) => actions.setDraft(index, value)}
-            />
-          ))}
+          {Input !== undefined &&
+            state.mode.drafts.map((draft, index) => (
+              <Input
+                key={`draft-${index}`}
+                label={`Modification ${index + 1}`}
+                value={draft}
+                {...(index === 0 ? { autoFocus: true as const } : {})}
+                onInput={(value) => actions.setDraft(index, value)}
+                onSubmit={(value) => actions.setDraft(index, value)}
+              />
+            ))}
           <Box flexDirection="row" gap={1}>
             <Button key="accept-edited" variant="primary" onPress={() => actions.acceptEdited()}>
               Accepter le texte modifié
@@ -189,13 +254,15 @@ export function drawReview(el: PaneElements, state: ReviewState, actions: Review
       )}
       {state.mode.kind === "reject" && (
         <Box flexDirection="column">
-          <Input
-            key="reject-reason"
-            label="Raison du rejet"
-            placeholder="obligatoire"
-            autoFocus
-            onSubmit={(value) => actions.reject(value)}
-          />
+          {Input !== undefined && (
+            <Input
+              key="reject-reason"
+              label="Raison du rejet"
+              placeholder="obligatoire"
+              autoFocus
+              onSubmit={(value) => actions.reject(value)}
+            />
+          )}
           <Button key="cancel-reject" onPress={() => actions.setMode({ kind: "view" })}>
             Annuler
           </Button>

@@ -88,7 +88,7 @@ export function addToolUses(facts: TurnFacts, uses: readonly ToolUse[]): TurnFac
   );
 
   const commits = uses.filter((use) => use.tool === "Bash" && use.command !== null && isGitCommit(use.command)).length;
-  const refused = uses.filter((use) => use.isRefused).map((use) => use.tool);
+  const refused = uses.flatMap((use) => (use.isRefused ? [use.tool] : []));
 
   return {
     ...facts,

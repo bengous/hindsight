@@ -1,3 +1,7 @@
+import type { JsonObject, JsonValue } from "./json.ts";
+
+import { isJsonObject, isString, numberField, textField } from "./json.ts";
+
 export type HindsightConfig = {
   readonly gate: {
     readonly threshold: number;
@@ -42,31 +46,27 @@ export const defaultConfig: HindsightConfig = {
   excludedRepos: [],
 };
 
-type Json = Readonly<Record<string, unknown>>;
+function num(source: JsonObject, key: string, fallback: number): number {
+  const value = numberField(source, key);
 
-const isJson = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
-
-function num(source: Json, key: string, fallback: number): number {
-  const value = source[key];
-
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  return value !== null && Number.isFinite(value) ? value : fallback;
 }
 
-function str(source: Json, key: string, fallback: string): string {
-  const value = source[key];
+function str(source: JsonObject, key: string, fallback: string): string {
+  const value = textField(source, key);
 
-  return typeof value === "string" && value !== "" ? value : fallback;
+  return value !== null && value !== "" ? value : fallback;
 }
 
 /** Overlays a parsed `config.json` on the defaults; an unreadable or absent field keeps its default. */
-export function readConfig(input: unknown): HindsightConfig {
-  const root = isJson(input) ? input : {};
-  const gate = isJson(root["gate"]) ? root["gate"] : {};
-  const learn = isJson(root["learn"]) ? root["learn"] : {};
-  const notes = isJson(root["notes"]) ? root["notes"] : {};
-  const review = isJson(root["review"]) ? root["review"] : {};
+export function readConfig(input: JsonValue | undefined): HindsightConfig {
+  const root = isJsonObject(input) ? input : {};
+  const gate = isJsonObject(root["gate"]) ? root["gate"] : {};
+  const learn = isJsonObject(root["learn"]) ? root["learn"] : {};
+  const notes = isJsonObject(root["notes"]) ? root["notes"] : {};
+  const review = isJsonObject(root["review"]) ? root["review"] : {};
   const excluded = root["excludedRepos"];
-  const classifier = gate["classifierModel"];
+  const classifier = textField(gate, "classifierModel");
 
   return {
     gate: {
@@ -76,7 +76,7 @@ export function readConfig(input: unknown): HindsightConfig {
       quietMinTools: num(gate, "quietMinTools", defaultConfig.gate.quietMinTools),
       dailyCap: num(gate, "dailyCap", defaultConfig.gate.dailyCap),
       minCacheShare: num(gate, "minCacheShare", defaultConfig.gate.minCacheShare),
-      classifierModel: typeof classifier === "string" && classifier !== "" ? classifier : null,
+      classifierModel: classifier === "" ? null : classifier,
     },
     learn: {
       pendingNotes: num(learn, "pendingNotes", defaultConfig.learn.pendingNotes),
@@ -87,6 +87,6 @@ export function readConfig(input: unknown): HindsightConfig {
     },
     notes: { windowDays: num(notes, "windowDays", defaultConfig.notes.windowDays) },
     review: { pageSize: num(review, "pageSize", defaultConfig.review.pageSize) },
-    excludedRepos: Array.isArray(excluded) ? excluded.filter((entry) => typeof entry === "string") : [],
+    excludedRepos: Array.isArray(excluded) ? excluded.filter(isString) : [],
   };
 }

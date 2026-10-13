@@ -7,6 +7,7 @@ import type { SessionMessage, ToolUseSummary } from "claude-code";
 
 import { addToolUses, isRefusalText, markInterrupted } from "../domain/facts.ts";
 import { classifierText, gateBrief, gatePasses, gateSignals, gateSkip } from "../domain/gate.ts";
+import { isString } from "../domain/json.ts";
 import { cliGateLog } from "./cli-client.ts";
 import { debriefToast, runDebrief } from "./debrief.ts";
 import { countDebriefToday, debriefsToday, factsSince, readState, writeState } from "./state.ts";
@@ -18,10 +19,10 @@ export type TurnEnd = {
   readonly isInteractive: boolean;
 };
 
-function inputString(input: Record<string, unknown>, key: string): string | null {
-  const value = input[key];
+function inputString(use: ToolUseSummary, key: string): string | null {
+  const value = use.input[key];
 
-  return typeof value === "string" ? value : null;
+  return isString(value) ? value : null;
 }
 
 export function toToolUse(use: ToolUseSummary): ToolUse {
@@ -29,8 +30,8 @@ export function toToolUse(use: ToolUseSummary): ToolUse {
 
   return {
     tool: use.tool,
-    path: inputString(use.input, "file_path") ?? inputString(use.input, "notebook_path"),
-    command: inputString(use.input, "command"),
+    path: inputString(use, "file_path") ?? inputString(use, "notebook_path"),
+    command: inputString(use, "command"),
     isError,
     isRefused: isError && isRefusalText(use.text ?? ""),
   };
@@ -140,7 +141,7 @@ export async function classifyThenDebrief(
 
   await writeState(host, sessionId, { ...state, forkRunning: true, forkStartedAt: startedAt }, startedAt);
 
-  const release = async () =>
+  const release = async (): Promise<void> =>
     setFork(host, sessionId, (current) => ({ ...current, forkRunning: false, forkStartedAt: null }));
 
   if (!force) {

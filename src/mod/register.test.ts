@@ -1,6 +1,9 @@
-import type { On, SessionMessage } from "claude-code";
+import type { JsonValue } from "../domain/json.ts";
+import type { On, SessionMessage, ToolUseSummary } from "claude-code";
 
 import { describe, expect, mock, test } from "claude-code/testing";
+
+import { isJsonObject, parseJson } from "../domain/json.ts";
 
 const SESSION = { cwd: "/repo", surface: "terminal", isInteractive: true } as const;
 
@@ -24,10 +27,11 @@ type World = {
   holdCli: Promise<void> | null;
 };
 
-function cliAnswer(world: World, argv: readonly string[]): unknown {
+function cliAnswer(world: World, argv: readonly string[]): JsonValue {
   const command = argv.slice(2).filter((arg) => arg !== "--json");
+  const [name = ""] = command.join(" ").split(" --");
 
-  switch (command.join(" ").split(" --")[0]) {
+  switch (name) {
     case "config": {
       return { gate: { threshold: 1 } };
     }
@@ -146,11 +150,11 @@ const cliCommands = (world: World): string[] =>
 
 const RUN = { origin: { kind: "composer" }, presentation: { isFullscreen: false, columns: 120 } } as const;
 
-const toolMessage = (tool: string, input: Record<string, unknown>, text = "ok", isError?: true): SessionMessage => ({
-  role: "assistant",
-  text: "",
-  toolUses: [{ tool_use_id: `u-${tool}`, tool, input, text, ...(isError === undefined ? {} : { isError }) }],
-});
+const toolMessage = (tool: string, input: ToolUseSummary["input"], text = "ok", isError?: true): SessionMessage => {
+  const use = { tool_use_id: `u-${tool}`, tool, input, text };
+
+  return { role: "assistant", text: "", toolUses: [isError === undefined ? use : { ...use, isError }] };
+};
 
 describe("session.start", () => {
   test("registers /hindsight, then reads config and status without holding the hook", async ($, on) => {
@@ -220,17 +224,19 @@ describe("the Gate at turn.complete", () => {
     expect(world.forked).toHaveLength(1);
     expect(world.forked[0]).toContain("[hindsight debrief]");
     const record = world.cli.find((call) => call.argv.includes("record"));
-    const body = JSON.parse(record?.stdin ?? "{}") as { cacheShare: number; text: string; sessionId: string };
-    expect(body.sessionId).toBe("s-test");
-    expect(body.text).toBe(FORK_ANSWER);
-    expect(body.cacheShare).toBeGreaterThan(0.98);
+    const body = parseJson(record?.stdin ?? "{}");
+    expect(body).toMatchObject({ sessionId: "s-test", text: FORK_ANSWER });
+    expect(isJsonObject(body) ? body["cacheShare"] : null).toBeGreaterThan(0.98);
     expect(world.toasts).toEqual(["Debrief : 1 Note(s) retenue(s)"]);
 
     const decisions = world.cli
       .filter((call) => call.argv.includes("gate"))
-      .map((call) => JSON.parse(call.stdin ?? "{}"));
+      .map((call) => parseJson(call.stdin ?? "{}"));
 
-    expect(decisions.map((d: { decision: string }) => d.decision)).toEqual(["skip", "debrief"]);
+    expect(decisions.map((decision) => (isJsonObject(decision) ? decision["decision"] : null))).toEqual([
+      "skip",
+      "debrief",
+    ]);
   });
 
   test("a classifier that says skip stops the Gate and is journaled", async ($, on) => {
@@ -246,7 +252,7 @@ describe("the Gate at turn.complete", () => {
 
     const decisions = world.cli
       .filter((call) => call.argv.includes("gate"))
-      .map((call) => JSON.parse(call.stdin ?? "{}"));
+      .map((call) => parseJson(call.stdin ?? "{}"));
 
     expect(decisions.at(-1)).toMatchObject({ decision: "skip", reason: "classifier-skip" });
   });
@@ -284,6 +290,7 @@ describe("/hindsight", () => {
     await world.clock.settle();
 
     for (const args of ["", "status", "review", "learn", "handoff", "bogus"]) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- each run must finish before the next starts, as when the human types them one after the other.
       const answer = await $.command.run({ command: "hindsight", args, ...RUN });
       expect(answer).toEqual({});
     }

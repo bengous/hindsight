@@ -1,16 +1,18 @@
 import type { HindsightConfig } from "../domain/config.ts";
+import type { JsonObject, JsonValue } from "../domain/json.ts";
 import type { Host } from "./host.ts";
-import type { PaneElements, PaneItem, PaneMode, ReviewActions, ReviewState } from "./review-pane.tsx";
+import type { PaneItem, PaneMode, ReviewActions, ReviewState } from "./review-pane.tsx";
 import type { EngineInterface, Register } from "claude-code";
 
 import { defaultConfig, readConfig } from "../domain/config.ts";
 import { fromDraft, toDraft } from "../domain/diff.ts";
 import { addHumanText } from "../domain/facts.ts";
 import { cleanHumanText } from "../domain/human.ts";
+import { isJsonObject, isJsonValue, numberField, textField } from "../domain/json.ts";
 import { cliConfig, cliStatus, runCli } from "./cli-client.ts";
 import { afterTurn, classifyThenDebrief } from "./gate.ts";
 import { noticeLine } from "./notice.ts";
-import { drawReview, emptyReview } from "./review-pane.tsx";
+import { drawReview, emptyReview, isPaneItem } from "./review-pane.tsx";
 import { pruneStore, readState, writeState } from "./state.ts";
 
 const COMMAND = "hindsight";
@@ -34,7 +36,11 @@ function makeHost($: EngineInterface): Host {
     sessionId: async () => $.session.id(),
     repoRoot: async () => (await $.session.repo())?.root ?? null,
     messages: async () => $.session.messages(),
-    storeGet: async (key) => $.store.get(key),
+    storeGet: async (key) => {
+      const value = await $.store.get(key);
+
+      return isJsonValue(value) ? value : undefined;
+    },
     storeSet: async (key, value) => $.store.set(key, value),
     storeDelete: async (key) => $.store.delete(key),
     storeKeys: async () => $.store.keys(),
@@ -48,12 +54,25 @@ function makeHost($: EngineInterface): Host {
     toast: (text) => $.ui.toast(text),
     log: (text) => $.ui.log(text, { to: "debug" }),
     fill: async (text) => {
+      // oxlint-disable-next-line unicorn/no-array-fill-with-reference-type -- `$.prompt.fill` fills the prompt, not an array: no slot shares the object.
       await $.prompt.fill({ text, mode: "replace" });
     },
   };
 }
 
-const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+const describe = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));
+
+const logFailure =
+  (host: Host, what: string) =>
+  (cause: unknown): void => {
+    host.log(`${what} failed: ${describe(cause)}`);
+  };
+
+const toastFailure =
+  (host: Host) =>
+  (cause: unknown): void => {
+    host.toast(describe(cause));
+  };
 
 /** Config, Notice and store upkeep, none of it awaited by the hook: the first prompt never waits for the CLI. */
 async function startup(host: Host): Promise<void> {
@@ -97,8 +116,8 @@ async function endTurn(host: Host, turnId: string, isAborted: boolean, agentId: 
   }
 
   host.after(1, () => {
-    void classifyThenDebrief(host, config, turnId, outcome.brief, outcome.score, false).catch((error: unknown) =>
-      host.log(`debrief pipeline failed: ${describe(error)}`),
+    void classifyThenDebrief(host, config, turnId, outcome.brief, outcome.score, false).catch(
+      logFailure(host, "debrief pipeline"),
     );
   });
 }
@@ -112,15 +131,11 @@ async function forceDebrief(host: Host): Promise<void> {
   await classifyThenDebrief(host, config, null, brief, 0, true);
 }
 
-type Json = Readonly<Record<string, unknown>>;
+function toPaneItems(answer: JsonValue): Pick<ReviewState, "items" | "pending"> {
+  const listed = isJsonObject(answer) ? answer["items"] : undefined;
+  const items = Array.isArray(listed) ? listed.filter(isPaneItem) : [];
 
-const isJson = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
-
-function toPaneItems(answer: unknown): { items: PaneItem[]; pending: number } {
-  const items = isJson(answer) && Array.isArray(answer["items"]) ? (answer["items"] as PaneItem[]) : [];
-  const pending = isJson(answer) && typeof answer["pending"] === "number" ? answer["pending"] : items.length;
-
-  return { items, pending };
+  return { items, pending: numberField(answer, "pending") ?? items.length };
 }
 
 async function openReview(host: Host, open: (focus: boolean) => Promise<boolean>, redraw: () => void): Promise<void> {
@@ -140,6 +155,22 @@ async function openReview(host: Host, open: (focus: boolean) => Promise<boolean>
   }
 }
 
+function currentItem(): PaneItem | undefined {
+  return review.items[review.index];
+}
+
+function decisionLabel(kind: JsonValue | undefined): string {
+  if (kind === "accepted") {
+    return "acceptée";
+  }
+
+  if (kind === "rejected") {
+    return "rejetée";
+  }
+
+  return "en Handoff";
+}
+
 function dropCurrent(): void {
   const items = review.items.filter((_, index) => index !== review.index);
   review = {
@@ -151,7 +182,7 @@ function dropCurrent(): void {
   };
 }
 
-async function decide(host: Host, body: Json, redraw: () => void): Promise<void> {
+async function decide(host: Host, body: JsonObject, redraw: () => void): Promise<void> {
   review = { ...review, mode: { kind: "busy", label: "Décision en cours…" }, notice: null };
   redraw();
 
@@ -161,14 +192,13 @@ async function decide(host: Host, body: Json, redraw: () => void): Promise<void>
       timeoutMs: DECIDE_TIMEOUT_MS,
     });
 
-    const kind = isJson(answer) ? answer["kind"] : undefined;
+    const kind = isJsonObject(answer) ? answer["kind"] : undefined;
 
     if (kind === "refused") {
-      const reason = isJson(answer) && typeof answer["reason"] === "string" ? answer["reason"] : "refusée";
+      const reason = textField(answer, "reason") ?? "refusée";
       review = { ...review, mode: { kind: "view" }, notice: `Décision refusée : ${reason}` };
     } else {
-      const label = kind === "accepted" ? "acceptée" : kind === "rejected" ? "rejetée" : "en Handoff";
-      host.toast(`Proposal ${label}`);
+      host.toast(`Proposal ${decisionLabel(kind)}`);
       dropCurrent();
     }
   } catch (error) {
@@ -179,11 +209,9 @@ async function decide(host: Host, body: Json, redraw: () => void): Promise<void>
 }
 
 function paneActions(host: Host, redraw: () => void): ReviewActions {
-  const current = (): PaneItem | undefined => review.items[review.index];
-
   return {
     accept: (edits) => {
-      const item = current();
+      const item = currentItem();
 
       if (item === undefined) {
         return;
@@ -192,9 +220,9 @@ function paneActions(host: Host, redraw: () => void): ReviewActions {
       void decide(host, { id: item.id, decision: "accept", edits }, redraw);
     },
     acceptEdited: () => {
-      const item = current();
+      const item = currentItem();
 
-      if (item === undefined || item.change.kind !== "edit" || review.mode.kind !== "edit") {
+      if (item?.change.kind !== "edit" || review.mode.kind !== "edit") {
         return;
       }
 
@@ -208,7 +236,7 @@ function paneActions(host: Host, redraw: () => void): ReviewActions {
       void decide(host, { id: item.id, decision: "accept", edits }, redraw);
     },
     reject: (reason) => {
-      const item = current();
+      const item = currentItem();
 
       if (item === undefined) {
         return;
@@ -224,7 +252,7 @@ function paneActions(host: Host, redraw: () => void): ReviewActions {
       void decide(host, { id: item.id, decision: "reject", reason: reason.trim() }, redraw);
     },
     handoff: () => {
-      const item = current();
+      const item = currentItem();
 
       if (item === undefined) {
         return;
@@ -271,7 +299,7 @@ function paneActions(host: Host, redraw: () => void): ReviewActions {
 
 async function fillHandoff(host: Host): Promise<void> {
   const answer = await runCli(host, ["handoff", "prepare"]);
-  const instructions = isJson(answer) && typeof answer["instructions"] === "string" ? answer["instructions"] : null;
+  const instructions = textField(answer, "instructions");
 
   if (instructions === null) {
     host.toast("aucune Proposal en Handoff");
@@ -318,7 +346,9 @@ async function runCommand(
 
     case "learn": {
       const answer = await runCli(host, ["learn", "--detach"]);
-      host.toast(isJson(answer) && answer["detached"] === true ? "Learn lancé en arrière-plan" : "Learn non lancé");
+      host.toast(
+        isJsonObject(answer) && answer["detached"] === true ? "Learn lancé en arrière-plan" : "Learn non lancé",
+      );
 
       return;
     }
@@ -366,9 +396,7 @@ export const register: Register = (on) => {
 
     if (e.agentId === undefined) {
       const host = makeHost($);
-      void endTurn(host, e.turnId, e.isAborted, null).catch((error: unknown) =>
-        host.log(`gate failed: ${describe(error)}`),
-      );
+      void endTurn(host, e.turnId, e.isAborted, null).catch(logFailure(host, "gate"));
     }
 
     return result;
@@ -378,7 +406,7 @@ export const register: Register = (on) => {
     const host = makeHost($);
 
     const pane = {
-      open: async (focus: boolean) => {
+      open: async (focus: boolean): Promise<boolean> => {
         const opened = await $.ui.open(
           focus
             ? { id: PANE, title: "hindsight · Review", focus: true, closeOnEscape: true, rows: 30 }
@@ -387,20 +415,19 @@ export const register: Register = (on) => {
 
         return opened.isPlaced;
       },
-      redraw: () => $.ui.invalidate("ui.render"),
+      redraw: (): void => $.ui.invalidate("ui.render"),
     };
 
-    void runCommand(host, e.args, pane).catch((error: unknown) => host.toast(describe(error)));
+    void runCommand(host, e.args, pane).catch(toastFailure(host));
 
     return {};
   });
 
   on("ui.render", { component: "Pane", requestId: PANE }, ($, e) => {
     const host = makeHost($);
-    const elements = $.ui.resolve(e) as PaneElements;
 
     return drawReview(
-      elements,
+      $.ui.resolve(e),
       review,
       paneActions(host, () => $.ui.invalidate("ui.render")),
       e.props.bodyColumns,
