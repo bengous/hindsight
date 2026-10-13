@@ -94,14 +94,17 @@ export const ZONES: readonly Zone[] = [
       title: "Le domaine partagé",
       lead: "Les règles sans effet : les faits d'un tour, les sauts et signaux du Portail, le nettoyage et les marqueurs du texte humain, le prompt des cinq questions et son lecteur, les états d'une Proposal, les défauts de configuration, le masquage des secrets, le diff. Le mod et le CLI l'importent tous deux ; cette page le fait tourner dans votre navigateur.",
       why: [
-        "Le mod n'a pas de Node : le noyau n'importe ni <code>node:</code>, ni <code>bun:</code>, ni Effect, et <code>rg</code> le vérifie.",
+        "Le mod n'a pas de Node : le noyau n'importe ni <code>node:</code>, ni <code>bun:</code>, ni Effect, et le lint le vérifie.",
         "Des fonctions pures se lisent et se testent sans Effect : <code>bun test src/domain/gate.spec.ts</code> tourne en quelques millisecondes.",
       ],
       facts: [
-        ["Garde", String.raw`rg -n 'from "(node:|bun:|effect)|\bBun\.' src/domain -g '!*.spec.ts' ne trouve rien`],
+        [
+          "Garde",
+          "bun run lint : chaque dossier de src/ a une allowlist d'imports dans oxlint.config.ts ; src/domain n'importe que lui-même",
+        ],
       ],
       see: ["mod", "cli"],
-      src: "AGENTS.md (invariants) · docs/adr/0002",
+      src: "AGENTS.md (invariants) · docs/adr/0002 · docs/adr/0006",
     },
   },
   {
@@ -111,7 +114,8 @@ export const ZONES: readonly Zone[] = [
     color: "--z-cli",
     kw: ["vérifier", "apprendre", "appliquer"],
     info: {
-      kicker: "src/cli/ · src/debrief/ · src/learn/ · src/review/ · src/rules/ · src/transcripts/",
+      kicker:
+        "src/cli/ · src/debrief/ · src/gate/ · src/learn/ · src/platform/ · src/review/ · src/rules/ · src/transcripts/",
       title: "Le CLI hindsight",
       lead: "Tout ce qui écrit, attend ou coûte. Chaque commande lit ses entrées sur stdin en JSON, imprime une seule ligne JSON et rien d'autre ; le mod lit la dernière ligne. Il vérifie les Notes contre le transcript, fait tourner Learn et Prune, règle la Review et commit.",
       why: [

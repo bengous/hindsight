@@ -1,4 +1,38 @@
+import type { DummyRuleMap } from "oxlint";
+
 import { defineConfig } from "oxlint";
+
+const SRC_FOLDERS = [
+  "cli",
+  "debrief",
+  "domain",
+  "gate",
+  "learn",
+  "mod",
+  "platform",
+  "review",
+  "rules",
+  "store",
+  "transcripts",
+] as const;
+
+/** Forbids `../<folder>/` for every src folder outside `allowed`: the allowlist of the layer map in docs/adr/0006. */
+const layer = (allowed: readonly string[], message: string): DummyRuleMap => ({
+  "no-restricted-imports": [
+    "error",
+    {
+      patterns: [
+        {
+          regex: String.raw`^\.\./(${SRC_FOLDERS.filter((folder) => !allowed.includes(folder)).join("|")})/`,
+          message,
+        },
+      ],
+    },
+  ],
+});
+
+// Every bare specifier: node:, bun:, effect, any npm package.
+const NOT_LOCAL = String.raw`^[^.]`;
 
 const ANTI_SLOP_EFFECT_OFF = {
   "anti-slop-effect/no-manual-effect-error-tag": "off",
@@ -225,6 +259,66 @@ export default defineConfig({
     {
       files: ["*.config.ts", "tools/oxlint/hindsight/index.ts"],
       rules: { "import/no-default-export": "off" },
+    },
+    {
+      files: ["src/domain/**"],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: [
+              { regex: NOT_LOCAL, message: "src/domain is pure: no Node, Bun, Effect nor any package (AGENTS.md)." },
+              { regex: String.raw`^\.\./`, message: "src/domain imports no other src folder." },
+            ],
+          },
+        ],
+      },
+    },
+    {
+      files: ["src/mod/**"],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: [
+              {
+                // group, not regex: the allowlist needs a negation, and a Rust regex has no lookahead.
+                group: ["**", "!./**", "!../domain/**", "!claude-code"],
+                message:
+                  "src/mod imports its own files, src/domain and the claude-code types only: no Node, Bun, Effect nor any package.",
+              },
+            ],
+          },
+        ],
+      },
+    },
+    {
+      files: ["src/transcripts/**", "src/store/**", "src/platform/**"],
+      rules: layer(["domain"], "An adapter imports src/domain only."),
+    },
+    {
+      files: ["src/rules/**"],
+      rules: layer(["domain", "platform"], "src/rules speaks of Rule Files: domain and platform only."),
+    },
+    {
+      files: ["src/gate/**"],
+      rules: layer(["domain", "transcripts"], "The replay reads transcripts and domain only."),
+    },
+    {
+      files: ["src/debrief/**"],
+      rules: layer(
+        ["domain", "transcripts", "store", "platform"],
+        "A feature imports adapters, never another feature.",
+      ),
+    },
+    {
+      files: ["src/learn/**", "src/review/**"],
+      rules: layer(["domain", "store", "rules", "platform"], "A feature imports adapters, never another feature."),
+    },
+    {
+      // Last: a later override wins, and the specs import bun:test, fixtures/ and cross the layers by construction.
+      files: ["src/**/*.spec.ts", "src/**/*.test.ts"],
+      rules: { "no-restricted-imports": "off" },
     },
     {
       // AGENTS.md: src/domain and src/mod import no Effect, so they can neither match with Match nor parse with Schema.

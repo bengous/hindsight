@@ -218,7 +218,7 @@ export const GUARDS: ReadonlyArray<readonly [string, string, string]> = [
   ],
   [
     "Le domaine reste pur",
-    "<code>src/domain/</code> n'importe ni Node, ni Bun, ni Effect : le mod n'a pas de Node, et cette page fait tourner le même code dans votre navigateur.",
-    "src/domain/*.ts",
+    "<code>src/domain/</code> n'importe ni Node, ni Bun, ni Effect : le mod n'a pas de Node, et cette page fait tourner le même code dans votre navigateur. Le lint tient cette garde et les frontières entre les dossiers de <code>src/</code>.",
+    "src/domain/*.ts · oxlint.config.ts",
   ],
 ];
