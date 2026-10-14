@@ -25,4 +25,5 @@ export type Host = {
   readonly toast: (text: string) => void;
   readonly log: (text: string) => void;
   readonly fill: (text: string) => Promise<void>;
+  readonly focus: (key: string) => Promise<void>;
 };

@@ -107,7 +107,7 @@ Debrief (fork reusing the session's cache)
 
 - A surface drawn on the human's machine only, behind one output port of the CLI: a pane in the Claude Code session first, a local page when one is wanted (ADR 0001).
 - Shows three pending **Proposals** per pass, sorted by **Prevalence** then by age, with no quota per kind of change, each on one screen: the target, the claim, the change, the reasoning and the evidence. Each **Quote** opens onto its full **Human Message**, with secrets masked.
-- Actions per **Proposal**: accept (one commit in the target repository, never pushed; for a global **Rule File** outside any repository, one write of that file), edit then accept, reject with a reason, or add to a **Handoff**.
+- Actions per **Proposal**: accept (one commit in the target repository, never pushed; for a global **Rule File** outside any repository, one write of that file), edit then accept, reject with a reason, chosen from a short list or typed, or add to a **Handoff**.
 - Every **Decision**, adding a **Proposal** to a **Handoff** included, goes to the **Ledger**.
 
 ### Handoff

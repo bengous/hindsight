@@ -30,6 +30,7 @@ export type ReviewMode =
   | { readonly kind: "view" }
   | { readonly kind: "edit" }
   | { readonly kind: "reject" }
+  | { readonly kind: "reject-other" }
   | { readonly kind: "busy"; readonly label: string };
 
 export type ReviewState = {
@@ -37,6 +38,7 @@ export type ReviewState = {
   readonly index: number;
   readonly mode: ReviewMode;
   readonly expanded: readonly number[];
+  readonly folded: boolean;
   readonly notice: string | null;
   readonly pending: number;
 };

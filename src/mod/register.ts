@@ -13,7 +13,7 @@ import { cleanHumanText } from "../domain/human.ts";
 import { isJsonArray, isJsonObject, isJsonValue, numberField, textField } from "../domain/json.ts";
 import { cliConfig, cliStatus, runCli } from "./cli-client.ts";
 import { afterTurn, classifyThenDebrief } from "./gate.ts";
-import { noticeLine } from "./notice.ts";
+import { noticeLine, refreshStatus } from "./notice.ts";
 import { drawReview, emptyReview, isPaneItem } from "./review-pane.tsx";
 import { changeState, pruneStore, readState } from "./state.ts";
 
@@ -64,6 +64,13 @@ function makeHost($: EngineInterface): Host {
       // oxlint-disable-next-line unicorn/no-array-fill-with-reference-type -- `$.prompt.fill` fills the prompt, not an array: no slot shares the object.
       await $.prompt.fill({ text, mode: "replace" });
     },
+    focus: async (key) => {
+      const result = await $.ui.focus({ requestId: PANE, key });
+
+      if (result.deny !== undefined) {
+        throw new Error(`focus on ${key} denied: ${result.deny}`);
+      }
+    },
   };
 }
 
@@ -89,11 +96,7 @@ async function startup(host: Host): Promise<void> {
     host.toast(`config illisible, défauts gardés (${describe(error)})`);
   }
 
-  try {
-    host.status(noticeLine(await cliStatus(host)));
-  } catch (error) {
-    host.log(`status failed: ${describe(error)}`);
-  }
+  await refreshStatus(host);
 
   try {
     await pruneStore(host, await host.now());
@@ -196,6 +199,7 @@ function dropProposal(state: ReviewState, id: string): ReviewState {
     index: Math.min(state.index, Math.max(0, items.length - 1)),
     mode: { kind: "view" },
     expanded: [],
+    folded: true,
   };
 }
 
@@ -220,9 +224,11 @@ async function decide(host: Host, id: string, decision: JsonObject): Promise<voi
     } else {
       host.toast(`Proposal ${decisionLabel(kind)}`);
       await host.updateReview((state) => dropProposal(state, id));
+      await refreshStatus(host);
     }
   } catch (error) {
     await host.updateReview((state) => ({ ...state, mode: { kind: "view" }, notice: describe(error) }));
+    await refreshStatus(host);
   }
 }
 
@@ -290,6 +296,7 @@ function paneActions(host: Host): ReviewActions {
               index: (state.index + 1) % state.items.length,
               mode: { kind: "view" },
               expanded: [],
+              folded: true,
               notice: null,
             },
       ),
@@ -301,8 +308,15 @@ function paneActions(host: Host): ReviewActions {
 
         drafts = item.change.edits.map((edit) => toDraft(edit.newText));
         await host.updateReview((state) => ({ ...state, mode: { kind: "edit" }, notice: null }));
+        await host.focus("draft-0");
       }),
-    setMode: (mode) => change((state) => ({ ...state, mode, notice: null })),
+    setMode: (mode) => {
+      change((state) => ({ ...state, mode, notice: null }));
+
+      if (mode.kind === "reject-other") {
+        void host.focus("reject-reason").catch(logFailure(host, "review"));
+      }
+    },
     toggleEvidence: (index) =>
       change((state) => ({
         ...state,
@@ -310,6 +324,7 @@ function paneActions(host: Host): ReviewActions {
           ? state.expanded.filter((i) => i !== index)
           : [...state.expanded, index],
       })),
+    toggleFold: () => change((state) => ({ ...state, folded: !state.folded })),
     setDraft: (index, value) => {
       drafts = drafts.map((draft, i) => (i === index ? value : draft));
     },
@@ -335,8 +350,9 @@ async function runCommand(host: Host, args: string, open: (focus: boolean) => Pr
 
   switch (verb) {
     case "status": {
-      const status = await cliStatus(host);
-      host.toast(noticeLine(status) ?? "rien en attente");
+      const line = noticeLine(await cliStatus(host));
+      host.toast(line ?? "rien en attente");
+      host.status(line);
 
       return;
     }

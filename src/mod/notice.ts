@@ -1,6 +1,9 @@
 import type { StatusSummary } from "./cli-client.ts";
+import type { Host } from "./host.ts";
 
-/** The one line the human sees at session start; undefined clears it. The agent never reads it. */
+import { cliStatus } from "./cli-client.ts";
+
+/** The status line the human sees; undefined clears it. The agent never reads it. */
 export function noticeLine(status: StatusSummary): string | undefined {
   const parts: string[] = [];
 
@@ -15,4 +18,13 @@ export function noticeLine(status: StatusSummary): string | undefined {
   }
 
   return parts.length === 0 ? undefined : parts.join(" · ");
+}
+
+/** Rewrites the status line from `hindsight status`; a failure is logged, never thrown: the line is cosmetic. */
+export async function refreshStatus(host: Host): Promise<void> {
+  try {
+    host.status(noticeLine(await cliStatus(host)));
+  } catch (error) {
+    host.log(`status failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }

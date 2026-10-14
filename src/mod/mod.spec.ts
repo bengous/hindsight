@@ -102,7 +102,15 @@ function fakeHost(
       store.delete(key);
     },
     storeKeys: async () => [...store.keys()],
-    reviewState: async () => ({ items: [], index: 0, mode: { kind: "view" }, expanded: [], notice: null, pending: 0 }),
+    reviewState: async () => ({
+      items: [],
+      index: 0,
+      mode: { kind: "view" },
+      expanded: [],
+      folded: true,
+      notice: null,
+      pending: 0,
+    }),
     updateReview: async () => {},
     run: async () => ({ ...answer, stderr: answer.stderr ?? "", isStdoutTruncated: false, isStderrTruncated: false }),
     classify: async () => {},
@@ -112,6 +120,7 @@ function fakeHost(
     toast: () => {},
     log: () => {},
     fill: async () => {},
+    focus: async () => {},
   };
 }
 

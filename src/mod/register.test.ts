@@ -303,6 +303,17 @@ describe("/hindsight", () => {
     expect(world.toasts.every((toast) => toast.length > 0)).toBe(true);
   });
 
+  test("a recorded Debrief rewrites the status line", async ($, on) => {
+    const world = build(on);
+    await $.session.start(SESSION);
+    await world.clock.settle();
+    expect(world.statuses).toEqual([undefined]);
+    world.pendingProposals = 1;
+    await $.command.run({ command: "hindsight", args: "debrief", ...RUN });
+    await world.clock.settle();
+    expect(world.statuses).toEqual([undefined, "1 Proposal en attente · /hindsight review"]);
+  });
+
   test("/hindsight debrief forks without the classifier", async ($, on) => {
     const world = build(on);
     await $.session.start(SESSION);

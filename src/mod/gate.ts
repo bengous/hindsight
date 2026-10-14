@@ -10,6 +10,7 @@ import { classifierText, gateBrief, gatePasses, gateSignals, gateSkip } from "..
 import { isString } from "../domain/json.ts";
 import { cliGateLog } from "./cli-client.ts";
 import { debriefToast, runDebrief } from "./debrief.ts";
+import { refreshStatus } from "./notice.ts";
 import { changeState, countDebriefToday, debriefsToday, factsSince, takeFork } from "./state.ts";
 
 export type TurnEnd = {
@@ -205,6 +206,10 @@ export async function classifyThenDebrief(
 
     if (toast !== null) {
       host.toast(toast);
+    }
+
+    if (run.kind !== "aborted") {
+      await refreshStatus(host);
     }
   } catch (error) {
     await release();

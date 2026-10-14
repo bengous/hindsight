@@ -27,6 +27,7 @@ export type ReviewActions = {
   readonly edit: () => void;
   readonly setMode: (mode: PaneMode) => void;
   readonly toggleEvidence: (index: number) => void;
+  readonly toggleFold: () => void;
   readonly setDraft: (index: number, value: string) => void;
 };
 
@@ -35,9 +36,32 @@ export const emptyReview: ReviewState = {
   index: 0,
   mode: { kind: "view" },
   expanded: [],
+  folded: true,
   notice: null,
   pending: 0,
 };
+
+export const REJECT_REASONS = ["Pas une règle", "Déjà couvert", "Trop lié à une session", "Faux positif"] as const;
+
+const plural = (count: number, word: string): string => `${count} ${word}${count > 1 ? "s" : ""}`;
+
+export function prevalenceLine(prevalence: { sessions: number; days: number; repos: number }): string {
+  if (prevalence.sessions === 0) {
+    return "vérifié par le code";
+  }
+
+  return `vu dans ${plural(prevalence.sessions, "session")} sur ${plural(prevalence.days, "jour")}, ${plural(prevalence.repos, "dépôt")}`;
+}
+
+const MONTHS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+
+/** The day and month of an ISO date or datetime, read from its text: a timezone would move the day. */
+export function shortDate(iso: string): string {
+  const [, month, day] = /^\d{4}-(\d{2})-(\d{2})/.exec(iso) ?? [];
+  const name = MONTHS[Number(month) - 1];
+
+  return name === undefined || day === undefined ? iso : `${Number(day)} ${name}`;
+}
 
 const isTextOrNull = (value: JsonValue | undefined): value is string | null => value === null || isString(value);
 
@@ -127,64 +151,87 @@ export function drawReview(
   }
 
   const isEdit = item.change.kind === "edit";
-
-  const diff =
-    item.change.kind === "edit" ? unifiedDiff(displayPath(item.targetPath, item.repoRoot), item.change.edits) : null;
-
-  const prevalence =
-    item.prevalence.sessions === 0
-      ? "contrôle en code"
-      : `${item.prevalence.sessions} session(s), ${item.prevalence.days} jour(s), ${item.prevalence.repos} dépôt(s)`;
+  const path = displayPath(item.targetPath, item.repoRoot);
 
   return (
-    <Box flexDirection="column" width={width}>
-      <Text bold>
-        {displayPath(item.targetPath, item.repoRoot)} <Text dimColor>{item.repoRoot ?? "fichier global"}</Text>
-      </Text>
-      <Text>
-        <Text dimColor>
-          {state.index + 1}/{state.items.length} ·{" "}
+    <Box flexDirection="column" width={width} gap={1}>
+      <Box flexDirection="row" justifyContent="space-between">
+        <Text bold>
+          {path} <Text dimColor>{item.repoRoot ?? "global"}</Text>
         </Text>
-        {item.verdict ?? item.source} · {prevalence}
-      </Text>
-      <Text>{displayText(item.claimFr, TEXT_MAX)}</Text>
-      {diff === null ? (
-        <Text color="warning">{displayText(item.change.kind === "description" ? item.change.text : "", TEXT_MAX)}</Text>
-      ) : (
-        <Code source={diff} format="diff" path={displayPath(item.targetPath, item.repoRoot)} />
-      )}
-      <Text dimColor>{displayText(item.reasoningFr, TEXT_MAX)}</Text>
-      <Text dimColor>Lesson: {displayText(item.lessonEn, TEXT_MAX)}</Text>
-      {item.evidence.map((evidence, index) => (
-        <Box flexDirection="column" key={`ev-${index}`}>
-          <Button key={`evidence-${index}`} plain onPress={() => actions.toggleEvidence(index)}>
-            {evidence.kind === "quote" ? "« " : `${evidence.tool ?? "outil"} › `}
-            {displayText(evidence.text, TEXT_MAX)}
-            {evidence.kind === "quote" ? " »" : ""} <Text dimColor>{evidence.at.slice(0, 10)}</Text>
-          </Button>
-          {state.expanded.includes(index) && evidence.message !== null && (
-            <Text dimColor>{displayText(evidence.message, MESSAGE_MAX)}</Text>
-          )}
+        <Text dimColor>
+          {state.index + 1} sur {state.items.length}
+        </Text>
+      </Box>
+      {item.change.kind === "edit" ? (
+        <Box borderStyle="single" borderDimColor paddingX={1}>
+          <Code source={unifiedDiff(path, item.change.edits)} format="diff" path={path} />
         </Box>
-      ))}
+      ) : (
+        <Box flexDirection="column">
+          <Text>{displayText(item.change.text, TEXT_MAX)}</Text>
+          <Text dimColor>Ce changement se fait dans un Handoff, pas par une édition de texte.</Text>
+        </Box>
+      )}
+      <Box flexDirection="column">
+        <Text>{displayText(item.claimFr, TEXT_MAX)}</Text>
+        <Box flexDirection="column" paddingLeft={2}>
+          {item.evidence.map((evidence, index) => (
+            <Box flexDirection="column" key={`ev-${index}`}>
+              <Button key={`evidence-${index}`} plain onPress={() => actions.toggleEvidence(index)}>
+                {state.expanded.includes(index) ? "▾ " : "▸ "}
+                {evidence.kind === "quote" ? "« " : `${evidence.tool ?? "outil"} › `}
+                {displayText(evidence.text, TEXT_MAX)}
+                {evidence.kind === "quote" ? " »" : ""} <Text dimColor>{shortDate(evidence.at)}</Text>
+              </Button>
+              {state.expanded.includes(index) && evidence.message !== null && (
+                <Text dimColor>{displayText(evidence.message, MESSAGE_MAX)}</Text>
+              )}
+            </Box>
+          ))}
+        </Box>
+      </Box>
+      <Box flexDirection="column">
+        <Button key="fold" plain onPress={() => actions.toggleFold()}>
+          {state.folded ? "▸ " : "▾ "}Raisonnement et Lesson
+        </Button>
+        {!state.folded && (
+          <Box flexDirection="column" paddingLeft={2}>
+            <Text dimColor>{displayText(item.reasoningFr, TEXT_MAX)}</Text>
+            <Text dimColor>Lesson: {displayText(item.lessonEn, TEXT_MAX)}</Text>
+          </Box>
+        )}
+      </Box>
+      <Text dimColor>
+        {item.verdict ?? item.source} · {prevalenceLine(item.prevalence)}
+      </Text>
       {state.notice !== null && <Text color="warning">{displayText(state.notice, TEXT_MAX)}</Text>}
-      {state.mode.kind === "view" && (
+      {state.mode.kind === "view" && isEdit && (
         <Box flexDirection="row" gap={1}>
-          {isEdit && (
-            <Button key="accept" hotkey="a" variant="primary" onPress={() => actions.accept(null)}>
-              Accepter
-            </Button>
-          )}
-          {isEdit && (
-            <Button key="edit" hotkey="m" onPress={() => actions.edit()}>
-              Modifier
-            </Button>
-          )}
+          <Button key="accept" hotkey="a" variant="primary" onPress={() => actions.accept(null)}>
+            Accepter
+          </Button>
+          <Button key="edit" hotkey="m" onPress={() => actions.edit()}>
+            Modifier
+          </Button>
           <Button key="reject" hotkey="r" onPress={() => actions.setMode({ kind: "reject" })}>
             Rejeter
           </Button>
           <Button key="handoff" hotkey="h" onPress={() => actions.handoff()}>
             Handoff
+          </Button>
+          <Button key="next" hotkey="n" onPress={() => actions.next()}>
+            Suivant
+          </Button>
+        </Box>
+      )}
+      {state.mode.kind === "view" && !isEdit && (
+        <Box flexDirection="row" gap={1}>
+          <Button key="handoff" hotkey="h" variant="primary" onPress={() => actions.handoff()}>
+            Ajouter au Handoff
+          </Button>
+          <Button key="reject" hotkey="r" onPress={() => actions.setMode({ kind: "reject" })}>
+            Rejeter
           </Button>
           <Button key="next" hotkey="n" onPress={() => actions.next()}>
             Suivant
@@ -217,11 +264,34 @@ export function drawReview(
       )}
       {state.mode.kind === "reject" && (
         <Box flexDirection="column">
+          <Text dimColor>Pourquoi ce rejet ?</Text>
+          {REJECT_REASONS.map((reason, index) => (
+            <Button key={`reason-${index}`} hotkey={String(index + 1)} plain onPress={() => actions.reject(reason)}>
+              {reason}
+            </Button>
+          ))}
+          {Input !== undefined && (
+            <Button
+              key="reject-other"
+              hotkey={String(REJECT_REASONS.length + 1)}
+              plain
+              onPress={() => actions.setMode({ kind: "reject-other" })}
+            >
+              Autre…
+            </Button>
+          )}
+          <Button key="cancel-reject" onPress={() => actions.setMode({ kind: "view" })}>
+            Annuler
+          </Button>
+        </Box>
+      )}
+      {state.mode.kind === "reject-other" && (
+        <Box flexDirection="column">
           {Input !== undefined && (
             <Input
               key="reject-reason"
-              label="Raison du rejet"
-              placeholder="obligatoire"
+              label="Autre raison"
+              placeholder="une phrase, gardée dans le Ledger"
               autoFocus
               onSubmit={(value) => actions.reject(value)}
             />
