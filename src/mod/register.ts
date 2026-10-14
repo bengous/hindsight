@@ -203,6 +203,21 @@ function dropProposal(state: ReviewState, id: string): ReviewState {
   };
 }
 
+function moveTo(state: ReviewState, step: 1 | -1): ReviewState {
+  const count = state.items.length;
+
+  return count === 0
+    ? state
+    : {
+        ...state,
+        index: (state.index + step + count) % count,
+        mode: { kind: "view" },
+        expanded: [],
+        folded: true,
+        notice: null,
+      };
+}
+
 async function decide(host: Host, id: string, decision: JsonObject): Promise<void> {
   await host.updateReview((state) => ({ ...state, mode: { kind: "busy", label: "Décision en cours…" }, notice: null }));
 
@@ -287,19 +302,8 @@ function paneActions(host: Host): ReviewActions {
         await decide(host, item.id, { decision: "reject", reason: reason.trim() });
       }),
     handoff: () => onCurrent(async (item) => decide(host, item.id, { decision: "handoff" })),
-    next: () =>
-      change((state) =>
-        state.items.length === 0
-          ? state
-          : {
-              ...state,
-              index: (state.index + 1) % state.items.length,
-              mode: { kind: "view" },
-              expanded: [],
-              folded: true,
-              notice: null,
-            },
-      ),
+    next: () => change((state) => moveTo(state, 1)),
+    previous: () => change((state) => moveTo(state, -1)),
     edit: () =>
       onCurrent(async (item) => {
         if (item.change.kind !== "edit") {

@@ -213,6 +213,10 @@ describe("the Review pane", () => {
     });
 
     expect(await ui.find({ type: "Text", text: /1 sur 2/ })).toBeDefined();
+    await ui.press({ key: "previous" });
+    expect(await ui.find({ type: "Text", text: /2 sur 2/ })).toBeDefined();
+    await ui.press({ key: "next" });
+    expect(await ui.find({ type: "Text", text: /1 sur 2/ })).toBeDefined();
     expect(await ui.find({ type: "Text", text: /vu dans 3 sessions sur 2 jours, 1 dépôt/ })).toBeDefined();
     expect(await ui.find({ type: "Text", text: /Lesson:/ })).toBeUndefined();
     await ui.press({ key: "fold" });

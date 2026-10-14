@@ -24,6 +24,7 @@ export type ReviewActions = {
   readonly reject: (reason: string) => void;
   readonly handoff: () => void;
   readonly next: () => void;
+  readonly previous: () => void;
   readonly edit: () => void;
   readonly setMode: (mode: PaneMode) => void;
   readonly toggleEvidence: (index: number) => void;
@@ -131,6 +132,43 @@ export function displayPath(path: string, repoRoot: string | null): string {
   return path;
 }
 
+/** The Decision row: an edit is accepted, modified, rejected or handed off; a description only handed off or rejected. */
+function viewActions(el: PaneElements, isEdit: boolean, actions: ReviewActions): RenderElement {
+  const { Box, Button } = el;
+
+  return (
+    <Box flexDirection="row" gap={1}>
+      {isEdit && (
+        <Button key="accept" hotkey="a" variant="primary" onPress={() => actions.accept(null)}>
+          Accepter
+        </Button>
+      )}
+      {isEdit && (
+        <Button key="edit" hotkey="m" onPress={() => actions.edit()}>
+          Modifier
+        </Button>
+      )}
+      <Button key="reject" hotkey="r" onPress={() => actions.setMode({ kind: "reject" })}>
+        Rejeter
+      </Button>
+      <Button
+        key="handoff"
+        hotkey="h"
+        {...(isEdit ? {} : { variant: "primary" as const })}
+        onPress={() => actions.handoff()}
+      >
+        {isEdit ? "Handoff" : "Ajouter au Handoff"}
+      </Button>
+      <Button key="previous" hotkey="p" onPress={() => actions.previous()}>
+        Précédent
+      </Button>
+      <Button key="next" hotkey="n" onPress={() => actions.next()}>
+        Suivant
+      </Button>
+    </Box>
+  );
+}
+
 export function drawReview(
   el: PaneElements,
   state: ReviewState,
@@ -206,38 +244,7 @@ export function drawReview(
         {item.verdict ?? item.source} · {prevalenceLine(item.prevalence)}
       </Text>
       {state.notice !== null && <Text color="warning">{displayText(state.notice, TEXT_MAX)}</Text>}
-      {state.mode.kind === "view" && isEdit && (
-        <Box flexDirection="row" gap={1}>
-          <Button key="accept" hotkey="a" variant="primary" onPress={() => actions.accept(null)}>
-            Accepter
-          </Button>
-          <Button key="edit" hotkey="m" onPress={() => actions.edit()}>
-            Modifier
-          </Button>
-          <Button key="reject" hotkey="r" onPress={() => actions.setMode({ kind: "reject" })}>
-            Rejeter
-          </Button>
-          <Button key="handoff" hotkey="h" onPress={() => actions.handoff()}>
-            Handoff
-          </Button>
-          <Button key="next" hotkey="n" onPress={() => actions.next()}>
-            Suivant
-          </Button>
-        </Box>
-      )}
-      {state.mode.kind === "view" && !isEdit && (
-        <Box flexDirection="row" gap={1}>
-          <Button key="handoff" hotkey="h" variant="primary" onPress={() => actions.handoff()}>
-            Ajouter au Handoff
-          </Button>
-          <Button key="reject" hotkey="r" onPress={() => actions.setMode({ kind: "reject" })}>
-            Rejeter
-          </Button>
-          <Button key="next" hotkey="n" onPress={() => actions.next()}>
-            Suivant
-          </Button>
-        </Box>
-      )}
+      {state.mode.kind === "view" && viewActions(el, isEdit, actions)}
       {state.mode.kind === "edit" && item.change.kind === "edit" && (
         <Box flexDirection="column">
           <Text dimColor>Nouveau texte, une ligne par modification ; ⏎ marque un saut de ligne.</Text>
