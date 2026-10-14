@@ -47,3 +47,7 @@ To work on it, add the checkout as a marketplace and install from it: `claude pl
 ## Safety model
 
 The invariants in [AGENTS.md](AGENTS.md) are the contract: a human Decision before any write, only your words as Quotes, exact edits applied once, no Quote in a commit, no fallback model, and nothing in the agent's context.
+
+## License
+
+[MIT](LICENSE)
