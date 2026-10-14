@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>hindsight flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400&display=swap"
+  rel="stylesheet"
+/>
+<style>
+  :root {
+    --page: #ffffff;
+    --sheet: #f4f6f8;
+    --surface: #ffffff;
+    --ink: #161d27;
+    --ink-2: #4a5666;
+    --ink-3: #76828f;
+    --line: #c4ccd6;
+    --human: #a6610e;
+    --model: #6a4cb0;
+    --code: #4a5666;
+    --rules: #1e7a4c;
+    --f-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+    --f-body: "IBM Plex Sans", system-ui, sans-serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #0d1117;
+      --sheet: #131b25;
+      --surface: #192330;
+      --ink: #e3e8ee;
+      --ink-2: #a5b1c0;
+      --ink-3: #8592a3;
+      --line: #30405a;
+      --human: #e2a54a;
+      --model: #b19cf2;
+      --code: #a5b1c0;
+      --rules: #6fcf98;
+    }
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    width: 880px;
+    background: var(--page);
+  }
+
+  #flow {
+    display: grid;
+    grid-template-columns: 1fr 64px 1fr 64px 1fr 64px 1fr;
+    grid-template-rows: auto auto 64px auto auto;
+    padding: 22px 28px 28px;
+    background: var(--sheet);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    color: var(--ink);
+  }
+
+  .band {
+    grid-column: 1 / -1;
+    margin-bottom: 10px;
+    font: 500 11px/1 var(--f-mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .card {
+    padding: 11px 13px 13px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--role);
+    border-radius: 8px;
+  }
+
+  .card .role {
+    font: 500 10.5px/1 var(--f-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--role);
+  }
+
+  .card h3 {
+    margin: 6px 0 5px;
+    font: 700 21px/1.05 var(--f-display);
+    letter-spacing: 0.01em;
+  }
+
+  .card p {
+    margin: 0;
+    font: 400 12.5px/1.42 var(--f-body);
+    color: var(--ink-2);
+  }
+
+  .card code {
+    font: 500 11.5px var(--f-mono);
+  }
+
+  .human {
+    --role: var(--human);
+  }
+
+  .model {
+    --role: var(--model);
+  }
+
+  .code {
+    --role: var(--code);
+  }
+
+  .rules {
+    --role: var(--rules);
+  }
+
+  .edge {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    font: 500 10.5px/1 var(--f-mono);
+    color: var(--ink-3);
+    white-space: nowrap;
+  }
+
+  .edge svg,
+  .drop svg {
+    display: block;
+    overflow: visible;
+  }
+
+  .edge line,
+  .drop line {
+    stroke: var(--ink-3);
+    stroke-width: 1.5;
+  }
+
+  .edge path,
+  .drop path {
+    fill: var(--ink-3);
+  }
+
+  .divider {
+    grid-column: 1 / 6;
+    align-self: center;
+    border-top: 1px dashed var(--line);
+  }
+
+  .drop {
+    grid-column: 7;
+    position: relative;
+    display: flex;
+    justify-content: center;
+  }
+
+  .drop span {
+    position: absolute;
+    top: 50%;
+    right: calc(50% + 12px);
+    transform: translateY(-50%);
+    font: 500 10.5px/1 var(--f-mono);
+    color: var(--ink-3);
+    white-space: nowrap;
+    background: var(--sheet);
+    padding: 0 6px;
+  }
+</style>
+</head>
+<body>
+<div id="flow">
+  <div class="band">During your session</div>
+
+  <div class="card human">
+    <div class="role">You</div>
+    <h3>Your session</h3>
+    <p>You work with Claude Code and correct it in your own words.</p>
+  </div>
+  <div class="edge">
+    <span>turn ends</span>
+    <svg width="44" height="10"><line x1="0" y1="5" x2="37" y2="5" /><path d="M44 5 L36 1 L36 9 Z" /></svg>
+  </div>
+  <div class="card code">
+    <div class="role">Code + model</div>
+    <h3>Debrief Gate</h3>
+    <p>Decides whether the turn is worth a Debrief.</p>
+  </div>
+  <div class="edge">
+    <span>worth it</span>
+    <svg width="44" height="10"><line x1="0" y1="5" x2="37" y2="5" /><path d="M44 5 L36 1 L36 9 Z" /></svg>
+  </div>
+  <div class="card model">
+    <div class="role">Model</div>
+    <h3>Debrief</h3>
+    <p>A fork on the session's own cache answers five questions.</p>
+  </div>
+  <div class="edge">
+    <span>answers</span>
+    <svg width="44" height="10"><line x1="0" y1="5" x2="37" y2="5" /><path d="M44 5 L36 1 L36 9 Z" /></svg>
+  </div>
+  <div class="card code">
+    <div class="role">Code</div>
+    <h3>Notes</h3>
+    <p>Every Quote checked word for word against the transcript.</p>
+  </div>
+
+  <div class="divider"></div>
+  <div class="drop">
+    <span>enough Notes wait</span>
+    <svg width="10" height="64"><line x1="5" y1="6" x2="5" y2="50" /><path d="M5 58 L1 50 L9 50 Z" /></svg>
+  </div>
+
+  <div class="band">Out of band, later</div>
+
+  <div class="card rules">
+    <div class="role">Your rules</div>
+    <h3>Rule File</h3>
+    <p>One commit in its repository, never pushed.</p>
+  </div>
+  <div class="edge">
+    <span>accept</span>
+    <svg width="44" height="10"><line x1="7" y1="5" x2="44" y2="5" /><path d="M0 5 L8 1 L8 9 Z" /></svg>
+  </div>
+  <div class="card human">
+    <div class="role">You</div>
+    <h3>Review</h3>
+    <p>Accept, reject with a reason, or hand off to an agent.</p>
+  </div>
+  <div class="edge">
+    <span>at start</span>
+    <svg width="44" height="10"><line x1="7" y1="5" x2="44" y2="5" /><path d="M0 5 L8 1 L8 9 Z" /></svg>
+  </div>
+  <div class="card code">
+    <div class="role">Code</div>
+    <h3>Proposal</h3>
+    <p>One exact edit to one Rule File, with its evidence.</p>
+  </div>
+  <div class="edge">
+    <span>recurs</span>
+    <svg width="44" height="10"><line x1="7" y1="5" x2="44" y2="5" /><path d="M0 5 L8 1 L8 9 Z" /></svg>
+  </div>
+  <div class="card model">
+    <div class="role">Model, then code</div>
+    <h3>Learn and Prune</h3>
+    <p>Opus groups what recurs; code counts it and finds stale rules.</p>
+  </div>
+</div>
+</body>
+</html>

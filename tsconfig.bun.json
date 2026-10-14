@@ -34,6 +34,7 @@
     "src/**/*.ts",
     "fixtures/**/*.ts",
     "tools/**/*.ts",
+    "docs/demo/*.ts",
     "*.config.ts",
     "types/claude-code.d.ts",
     "types/index.d.ts"

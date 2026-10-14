@@ -2,7 +2,18 @@
 
 Keeps the Rule Files your agents load (`AGENTS.md`, `CLAUDE.md`, `.claude/rules/`, output styles) current from what you keep telling Claude Code, out of band, with the evidence attached, and writes nothing until you accept it.
 
+![The Review pane in a Claude Code session: a Proposal adds "Use pnpm for every package command; never npm." to AGENTS.md, quoting four corrections over four days; the second Proposal is rejected as already covered, the first is accepted.](docs/readme/review.gif)
+
+## Why
+
+You correct Claude Code, and the same correction comes back a week later in another session, because no Rule File says it. hindsight keeps your own words as evidence, lets recurrence decide what deserves a rule, and hands you one exact edit to accept or reject.
+
 ## How it works
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/flow-dark.png">
+  <img alt="During your session: your session, then the Debrief Gate (code and a small model), then the Debrief (a fork on the session's cache), then Notes checked word for word. Out of band, later: Learn and Prune turn what recurs into a Proposal, you review it, and an accepted Proposal becomes one commit to a Rule File." src="docs/readme/flow-light.png" width="880">
+</picture>
 
 1. **Debrief Gate.** At the end of a turn, a Claude Code mod reads what happened since the session's previous Debrief: your own messages, the tools the agent used, refusals, errors, Rule File edits, commits. Code decides first; a small model confirms.
 2. **Debrief.** A fork of your session, served from its own prompt cache, answers five questions: did an edit make a loaded rule wrong, does a new rule deserve its place, which rule hindered, what was guessed for lack of a rule, what did you correct. Its answer is checked word for word against the transcript before anything is stored.
@@ -19,7 +30,7 @@ At the prompt of a Claude Code session:
 /plugin install hindsight --marketplace bengous/hindsight
 ```
 
-Answer `y` to add the marketplace, then pick a scope. The CLI runs with `bun src/cli/main.ts <command>` and needs Bun and the `claude` CLI, logged in, for Learn.
+Answer `y` to add the marketplace, then pick a scope. The CLI runs with `bun src/cli/main.ts <command>` and needs Bun and the `claude` CLI, logged in, for Learn. The mod's interface (status line, toasts, Review pane) and the Proposals' claims are in French.
 
 To work on it, add the checkout as a marketplace and install from it: `claude plugin marketplace add <checkout>`, then `claude plugin install hindsight@hindsight`. The plugin is read in place: edit, then `/reload-plugins`. A session can also load it for itself with `claude --plugin-dir <checkout>`, which hot-reloads the mod on every save.
 
