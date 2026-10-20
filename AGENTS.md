@@ -27,6 +27,7 @@ Out-of-band upkeep of the Rule Files coding agents load. A Claude Code mod runs 
 - `docs/plan/`: the interactive plan of the project (product, state machines, architecture), a Bun workspace of data files and a drawing engine built into one page; `bun docs/plan/check.ts` validates the data, `bun docs/plan/build.ts` writes `docs/plan/dist/hindsight.html`.
 - `docs/readme/`: the README's images. `flow.html` is the diagram's source; `flow-light.png` and `flow-dark.png` are screenshots of its `#flow` element in an 880 px viewport at scale 2, under `prefers-color-scheme` light then dark. `review.gif` is cut from the demo video, from `/hindsight review` to the last Decision.
 - `docs/demo/`: the README demo. `bun docs/demo/sandbox.ts /tmp/hs-demo` builds a synthetic sandbox and runs one real Learn; `demo.tape` records it with VHS into `/tmp/hs-demo/demo.mp4` (the command is in its header); every recording consumes the sandbox's Proposals, so rebuild it first.
+- `.github/`: `ci` runs the checks and zizmor on every branch push; `land` fast-forwards dev to the green head of a task branch's open pull request to dev.
 - `tools/oxlint/`: the lint plugins. `anti-slop/` is a vendored copy of `dmmulroy/anti-slop`, never edited by hand, refreshed by its upstream `install-anti-slop` procedure, its source commit in `UPSTREAM.md`; `hindsight/` holds the repository's own rules.
 - `.claude/rules/mod.md` and `.claude/rules/cli.md` hold the path-scoped detail; this file stays the index.
 
