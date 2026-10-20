@@ -23,7 +23,6 @@ export type ModelAnswer = {
   readonly durationMs: number;
 };
 
-// oxlint-disable-next-line unicorn/throw-new-error -- Schema.TaggedError is a class factory, not an Error constructor; its fix inserts a `new` that breaks the class.
 export class ModelError extends Schema.TaggedError<ModelError>()("ModelError", {
   kind: Schema.Literals(["timeout", "exit", "unparsable-stdout", "no-result", "result-error", "missing-output"]),
   label: Schema.String,

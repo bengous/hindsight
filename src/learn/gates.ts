@@ -9,7 +9,6 @@ import { Schema } from "effect";
 import { utcDay } from "../domain/text.ts";
 import { fingerprint, newId } from "../platform/ids.ts";
 
-// oxlint-disable-next-line unicorn/throw-new-error -- Schema.TaggedError is a class factory, not an Error constructor; its fix inserts a `new` that breaks the class.
 export class LearnError extends Schema.TaggedError<LearnError>()("LearnError", {
   group: Schema.String,
   message: Schema.String,

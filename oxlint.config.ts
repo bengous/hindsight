@@ -89,7 +89,8 @@ export default defineConfig({
     "typescript/ban-tslint-comment": "error",
     "unicorn/no-zero-fractions": "error",
     "unicorn/prefer-optional-catch-binding": "error",
-    "unicorn/throw-new-error": "error",
+    // Its fix, which oxlint cannot separate from the report, puts `new` before the `Schema.TaggedError<E>()(…)` factory.
+    "unicorn/throw-new-error": "off",
     "unicorn/prefer-negative-index": "error",
     "unicorn/empty-brace-spaces": "error",
     "unicorn/no-console-spaces": "error",
@@ -227,7 +228,8 @@ export default defineConfig({
       { properties: false, onlyDeclarations: true },
     ],
     "eslint/no-nested-ternary": "error",
-    "unicorn/catch-error-name": "error",
+    // Its fix, which oxlint cannot separate from the report, renames the binding and turns a `{ cause }` shorthand into `{ error }`.
+    "unicorn/catch-error-name": "off",
     "typescript/method-signature-style": "error",
     "eslint/operator-assignment": "error",
     "hindsight/constant-case": "error",

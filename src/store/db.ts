@@ -8,7 +8,6 @@ import { dirname } from "node:path";
 import { MIGRATIONS } from "./migrations.ts";
 import { FILE_MODE, ensurePrivateDir } from "./paths.ts";
 
-// oxlint-disable-next-line unicorn/throw-new-error -- Schema.TaggedError is a class factory, not an Error constructor; its fix inserts a `new` that breaks the class.
 export class StoreError extends Schema.TaggedError<StoreError>()("StoreError", {
   operation: Schema.String,
   cause: Schema.Defect(),
