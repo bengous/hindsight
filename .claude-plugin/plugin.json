@@ -1,6 +1,5 @@
 {
   "name": "hindsight",
-  "version": "0.1.0",
   "description": "Improves the Rule Files your agents load, out of band: a Debrief Gate at the end of a turn, a cache-sharing Debrief fork, a Notice at session start and a Review pane, with the hindsight CLI owning every write.",
   "author": {
     "name": "Augustin BENGOLEA",
