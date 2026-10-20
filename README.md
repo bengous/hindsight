@@ -27,7 +27,7 @@ Nothing of hindsight enters the agent's context.
 At the prompt of a Claude Code session:
 
 ```
-/plugin install hindsight --marketplace bengous/hindsight
+/plugin install hindsight --marketplace bengous/hindsight#main
 ```
 
 Answer `y` to add the marketplace, then pick a scope. The CLI runs with `bun src/cli/main.ts <command>` and needs Bun and the `claude` CLI, logged in, for Learn. The mod's interface (status line, toasts, Review pane) and the Proposals' claims are in French.
