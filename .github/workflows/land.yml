@@ -1,0 +1,84 @@
+name: land
+
+# workflow_run runs this file as the default branch holds it, never as the pushed branch does,
+# so a task branch cannot rewrite the gate that lands it. Nothing here checks out or runs the branch's code.
+on: # zizmor: ignore[dangerous-triggers]
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: land
+  cancel-in-progress: false
+
+jobs:
+  land:
+    name: land
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+      && github.event.workflow_run.head_branch != 'dev'
+      && github.event.workflow_run.head_branch != 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # move dev and delete the landed branch
+      pull-requests: write # comment why a pull request waits
+    steps:
+      - name: Fast-forward dev to the green head of the branch's pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          say() {
+            local body="land: $1"
+            if gh api "repos/$REPO/issues/$pr/comments" --paginate --jq '.[].body' | grep -qxF -- "$body"; then
+              return
+            fi
+            gh api "repos/$REPO/issues/$pr/comments" -f body="$body" --silent
+          }
+
+          pr=$(gh api -X GET "repos/$REPO/pulls" -f state=open -f base=dev -f head="${REPO%%/*}:$BRANCH" --jq '.[0].number // empty')
+          if [ -z "$pr" ]; then
+            echo "No open pull request from $BRANCH to dev: nothing to land."
+            exit 0
+          fi
+          head=$(gh api "repos/$REPO/pulls/$pr" --jq .head.sha)
+          if [ "$head" != "$SHA" ]; then
+            echo "Pull request #$pr is at $head, not at the green $SHA: its own run will land it."
+            exit 0
+          fi
+
+          files=$(gh api "repos/$REPO/pulls/$pr/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)')
+          labels=$(gh api "repos/$REPO/issues/$pr/labels" --jq '.[].name')
+          impact=""
+          while IFS= read -r file; do
+            case "$file" in
+              .github/* | scripts/* | .claude/agent-hooks.jsonc | .claude-plugin/* | hooks/hooks.json | src/mod/register.ts | src/store/migrations.ts)
+                impact="$impact $file" ;;
+            esac
+          done <<< "$files"
+          if grep -qxF impact <<< "$labels"; then
+            impact="$impact (label impact)"
+          fi
+          if [ -n "$impact" ] && ! grep -qxF ok-humain <<< "$labels"; then
+            say "waits for the ok-humain label, because it changes:$impact. Once the label is on, re-run the ci run of $SHA."
+            exit 0
+          fi
+
+          status=$(gh api "repos/$REPO/compare/dev...$SHA" --jq .status)
+          if [ "$status" != ahead ]; then
+            say "$BRANCH is $status relative to dev at $SHA: rebase it on origin/dev and push."
+            exit 0
+          fi
+
+          gh api -X PATCH "repos/$REPO/git/refs/heads/dev" -f sha="$SHA" -F force=false --silent
+          echo "dev is at $SHA."
+          gh api -X DELETE "repos/$REPO/git/refs/heads/$BRANCH" --silent
