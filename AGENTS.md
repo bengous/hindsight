@@ -19,7 +19,7 @@ Out-of-band upkeep of the Rule Files coding agents load. A Claude Code mod runs 
 
 ## Layout
 
-- `src/domain/`: shared pure core: `TurnFacts`, Gate signals and skips, human text cleaning and markers, Debrief prompt and parser, Proposal states, config defaults, secrets masking, diff text.
+- `src/domain/`: shared pure core: `TurnFacts`, Gate signals and skips, human text cleaning and markers, Debrief prompt and parser, Proposal states, config defaults, secrets masking, diff text, the JSON value model (`JsonValue`, `JsonObject`, the field readers) the mod, the transcripts and Learn decode outside values with.
 - `src/mod/`: the Claude Code mod (`hooks/hooks.json` → `register.ts`), its `Host`, the CLI client, the Gate and Debrief orchestration, the Notice, the Review pane. Engine types are pinned in `types/claude-code.d.ts`; `types/index.d.ts` is the mod's contract (its `$.state` values), named by `plugin.json`; `tsconfig.mod.json` type-checks it without DOM. Kit tests are `*.test.ts` under `src/mod/` (`claude plugin test .`), excluded from `bun test`.
 - `src/cli/`: `main.ts` and the Effect commands: `config`, `status`, `doctor`, `gate log|replay`, `debrief start|record`, `learn`, `prune`, `review list|decide`, `handoff prepare`. Every command prints one JSON line.
 - `src/store/`: the `bun:sqlite` Store service, migrations, queries, the Proposal Schemas. `src/platform/`: the shared Bun wrappers, git and ids. `src/transcripts/`: JSONL reading, one session with its continuations. `src/debrief/`: verification and storage of a Debrief's answer. `src/gate/`: the replay. `src/learn/`: schema, prompt, code gates, `claude -p` runner, Learn and Prune. `src/rules/`: inventory, markdown, globs, stale checks, apply and commit. `src/review/`: the output port.
