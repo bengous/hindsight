@@ -302,6 +302,11 @@ export default defineConfig({
       },
     },
     {
+      // tsgolint checks each async argument against the overloads of the engine's handler types and peaks near 5 GiB per file, past a 16 GB CI runner for the three together.
+      files: ["src/mod/register.ts", "src/mod/register.test.ts", "src/mod/review.test.ts"],
+      rules: { "typescript/no-misused-promises": ["error", { checksVoidReturn: { arguments: false } }] },
+    },
+    {
       files: ["src/transcripts/**", "src/store/**", "src/platform/**"],
       rules: layer(["domain"], "An adapter imports src/domain only."),
     },
