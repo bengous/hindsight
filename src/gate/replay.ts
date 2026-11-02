@@ -135,6 +135,7 @@ export function replaySession(
       isInteractive: record.isInteractive,
       agentId: null,
       isAborted: turn.aborted,
+      hadRequest: true,
       forkRunning: false,
       repoRoot: record.cwd,
       lastDebriefAt,

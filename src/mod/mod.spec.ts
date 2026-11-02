@@ -76,9 +76,9 @@ describe("cacheShareOf", () => {
 
 describe("noticeLine", () => {
   test("names pending Proposals and failed Debriefs, or clears the line", () => {
-    expect(noticeLine({ pendingProposals: 0, failures: 0 })).toBeUndefined();
-    expect(noticeLine({ pendingProposals: 1, failures: 0 })).toBe("1 Proposal en attente · /hindsight review");
-    expect(noticeLine({ pendingProposals: 3, failures: 2 })).toBe(
+    expect(noticeLine({ pendingProposals: 0, recentFailures: 0 })).toBeUndefined();
+    expect(noticeLine({ pendingProposals: 1, recentFailures: 0 })).toBe("1 Proposal en attente · /hindsight review");
+    expect(noticeLine({ pendingProposals: 3, recentFailures: 2 })).toBe(
       "3 Proposals en attente · /hindsight review · 2 Debriefs en erreur · /hindsight status",
     );
   });

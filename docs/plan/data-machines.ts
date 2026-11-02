@@ -46,6 +46,16 @@ const GATE_CHECKS: readonly Check[] = [
     src: "src/domain/gate.ts · gateSkip",
   },
   {
+    id: "c2r",
+    label: "Tour sans requête ?",
+    lead: "turn.complete sans usage : aucune requête n'a atteint le modèle (erreur d'API, limite d'usage). Le cache a pu expirer pendant l'attente, un fork le reconstruirait.",
+    skip: "oui : no-request",
+    skipBy: "code",
+    skipDesc: "",
+    next: "non",
+    src: "src/domain/gate.ts · gateSkip",
+  },
+  {
     id: "c3",
     label: "Fork en cours ?",
     lead: "Un Debrief de cette session tourne encore, verrou plus jeune que FORK_STALE_MS.",

@@ -9,6 +9,14 @@ const SESSION = { cwd: "/repo", surface: "terminal", isInteractive: true } as co
 
 const DEBRIEF_ID = "d-1";
 
+const USAGE = {
+  input_tokens: 400,
+  output_tokens: 100,
+  cache_read_input_tokens: 60_000,
+  cache_creation_input_tokens: 0,
+  model: "claude-opus-5-5",
+} as const;
+
 const FORK_ANSWER =
   '```json\n{"steers":[{"quote":"non, pas de npm pour ça","lesson":"Install packages with pnpm.","habit":true}]}\n```';
 
@@ -24,6 +32,7 @@ type World = {
   messages: SessionMessage[];
   classifyAnswer: string | undefined;
   pendingProposals: number;
+  failures: JsonValue[];
   holdCli: Promise<void> | null;
 };
 
@@ -37,7 +46,7 @@ function cliAnswer(world: World, argv: readonly string[]): JsonValue {
     }
 
     case "status": {
-      return { pendingProposals: world.pendingProposals, failures: [] };
+      return { pendingProposals: world.pendingProposals, failures: world.failures };
     }
 
     case "debrief start": {
@@ -75,6 +84,7 @@ function build(on: On): World {
     messages: [],
     classifyAnswer: "debrief",
     pendingProposals: 0,
+    failures: [],
     holdCli: null,
   };
 
@@ -171,6 +181,18 @@ describe("session.start", () => {
     expect(world.statuses).toEqual(["2 Proposals en attente · /hindsight review"]);
   });
 
+  test("the status line counts the failed Debriefs of the last 24 hours only", async ($, on) => {
+    const world = build(on);
+    const day = 24 * 60 * 60 * 1000;
+    world.failures = [
+      { id: "d-new", failure: "cache:0.00", at: new Date(1_000_000 - 60_000).toISOString() },
+      { id: "d-old", failure: "cache:0.00", at: new Date(1_000_000 - 2 * day).toISOString() },
+    ];
+    await $.session.start(SESSION);
+    await world.clock.settle();
+    expect(world.statuses).toEqual(["1 Debrief en erreur · /hindsight status"]);
+  });
+
   test("with nothing pending the status line stays empty", async ($, on) => {
     const world = build(on);
     await $.session.start(SESSION);
@@ -186,7 +208,14 @@ describe("the Gate at turn.complete", () => {
     await world.clock.settle();
     await $.prompt.submit({ text: "Ajoute un test pour parse()", wait: false, origin: { kind: "composer" } });
     world.messages = [toolMessage("Read", { file_path: "/repo/a.ts" })];
-    await $.turn.complete({ answer: "done", durationMs: 10, isAborted: false, turnId: "t-1", reason: "answer" });
+    await $.turn.complete({
+      answer: "done",
+      durationMs: 10,
+      isAborted: false,
+      turnId: "t-1",
+      reason: "answer",
+      usage: USAGE,
+    });
     expect(world.cli.filter((call) => call.argv.includes("gate"))).toHaveLength(0);
     await world.clock.advance(1);
     await world.clock.settle();
@@ -201,7 +230,14 @@ describe("the Gate at turn.complete", () => {
     await $.session.start(SESSION);
     await world.clock.settle();
     await $.prompt.submit({ text: "fais le plan", wait: false, origin: { kind: "composer" } });
-    await $.turn.complete({ answer: "ok", durationMs: 10, isAborted: false, turnId: "t-0", reason: "answer" });
+    await $.turn.complete({
+      answer: "ok",
+      durationMs: 10,
+      isAborted: false,
+      turnId: "t-0",
+      reason: "answer",
+      usage: USAGE,
+    });
     await world.clock.advance(1);
     await world.clock.settle();
     await $.prompt.submit({ text: "non, pas de npm pour ça", wait: false, origin: { kind: "composer" } });
@@ -215,6 +251,7 @@ describe("the Gate at turn.complete", () => {
       isAborted: false,
       turnId: "t-1",
       reason: "answer",
+      usage: USAGE,
     });
 
     expect(result).toEqual({ text: "" });
@@ -248,7 +285,14 @@ describe("the Gate at turn.complete", () => {
     await $.session.start(SESSION);
     await world.clock.settle();
     await $.prompt.submit({ text: "Désormais, réponds en français", wait: false, origin: { kind: "composer" } });
-    await $.turn.complete({ answer: "ok", durationMs: 10, isAborted: false, turnId: "t-1", reason: "answer" });
+    await $.turn.complete({
+      answer: "ok",
+      durationMs: 10,
+      isAborted: false,
+      turnId: "t-1",
+      reason: "answer",
+      usage: USAGE,
+    });
     await world.clock.advance(1);
     await world.clock.settle();
     expect(world.forked).toEqual([]);
@@ -258,6 +302,23 @@ describe("the Gate at turn.complete", () => {
       .map((call) => parseJson(call.stdin ?? "{}"));
 
     expect(decisions.at(-1)).toMatchObject({ decision: "skip", reason: "classifier-skip" });
+  });
+
+  test("a turn with no request to the model is journaled as a skip, never forked", async ($, on) => {
+    const world = build(on);
+    await $.session.start(SESSION);
+    await world.clock.settle();
+    await $.prompt.submit({ text: "non, pas de npm pour ça", wait: false, origin: { kind: "composer" } });
+    world.messages = [
+      toolMessage("Bash", { command: "bun test -u" }, "The user doesn't want to proceed with this tool use.", true),
+    ];
+    await $.turn.complete({ answer: "", durationMs: 10, isAborted: false, turnId: "t-1", reason: "error" });
+    await world.clock.advance(1);
+    await world.clock.settle();
+    const log = world.cli.find((call) => call.argv.includes("gate"));
+    expect(JSON.parse(log?.stdin ?? "{}")).toMatchObject({ decision: "skip", reason: "no-request" });
+    expect(world.classified).toEqual([]);
+    expect(world.forked).toEqual([]);
   });
 
   test("a subagent's turn and a pasted report never reach the Gate", async ($, on) => {
@@ -275,11 +336,19 @@ describe("the Gate at turn.complete", () => {
       isAborted: false,
       turnId: "t-2",
       reason: "answer",
+      usage: USAGE,
       agentId: "a-1",
     });
     await world.clock.settle();
     expect(world.cli.filter((call) => call.argv.includes("gate"))).toHaveLength(0);
-    await $.turn.complete({ answer: "ok", durationMs: 10, isAborted: false, turnId: "t-3", reason: "answer" });
+    await $.turn.complete({
+      answer: "ok",
+      durationMs: 10,
+      isAborted: false,
+      turnId: "t-3",
+      reason: "answer",
+      usage: USAGE,
+    });
     await world.clock.advance(1);
     await world.clock.settle();
     expect(world.classified).toEqual([]);

@@ -24,6 +24,7 @@ const open: GateState = {
   isInteractive: true,
   agentId: null,
   isAborted: false,
+  hadRequest: true,
   forkRunning: false,
   repoRoot: "/home/u/proj",
   lastDebriefAt: null,
@@ -94,6 +95,7 @@ describe("gateSkip", () => {
     expect(gateSkip({ ...open, isInteractive: false }, facts, defaultConfig)).toBe("non-interactive");
     expect(gateSkip({ ...open, agentId: "a1" }, facts, defaultConfig)).toBe("subagent");
     expect(gateSkip({ ...open, isAborted: true }, facts, defaultConfig)).toBe("turn-aborted");
+    expect(gateSkip({ ...open, hadRequest: false }, facts, defaultConfig)).toBe("no-request");
     expect(gateSkip({ ...open, forkRunning: true }, facts, defaultConfig)).toBe("fork-running");
     expect(gateSkip(open, facts, { ...defaultConfig, excludedRepos: ["/home/u/proj"] })).toBe("repo-excluded");
     expect(gateSkip({ ...open, debriefsToday: 20 }, facts, defaultConfig)).toBe("daily-cap");

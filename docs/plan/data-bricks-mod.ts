@@ -160,7 +160,7 @@ add(
     title: "Le Portail dans le mod",
     lead: "<code>afterTurn</code> relève les outils du dernier tour, écrit l'état, applique les sauts et le score, et journalise chaque refus. <code>classifyThenDebrief</code> tourne depuis le minuteur : verrou de fork, classifieur, journal <code>debrief</code>, puis le Debrief, puis la remise à jour de l'état et le toast.",
     io: [
-      ["Reçoit", "le tour (turnId, isAborted), les messages de la session, l'état, la configuration"],
+      ["Reçoit", "le tour (turnId, isAborted, hadRequest), les messages de la session, l'état, la configuration"],
       ["Produit", "une ligne de journal par décision (gate log), un fork ou rien, un toast"],
     ],
     facts: [
@@ -234,12 +234,11 @@ add(
   {
     kicker: "src/mod/notice.ts",
     title: "La Notice",
-    lead: "Une ligne de statut, posée une fois au démarrage de la session depuis <code>hindsight status</code> : « N Proposal(s) en attente · /hindsight review », « N Debrief(s) en erreur · /hindsight status », ou rien. Claude ne la lit pas.",
+    lead: "Une ligne de statut, réécrite depuis <code>hindsight status</code> au démarrage, après chaque Décision et chaque Debrief : « N Proposal(s) en attente · /hindsight review », « N Debrief(s) en erreur · /hindsight status » pour les échecs des dernières 24 h, ou rien. Claude ne la lit pas.",
     io: [
-      ["Reçoit", "pendingProposals et failures de status"],
+      ["Reçoit", "pendingProposals et les failures de status des dernières 24 h"],
       ["Produit", "le texte de la ligne, ou undefined qui l'efface"],
     ],
-    warn: "Rien ne rafraîchit la ligne après une Décision, et le compte d'erreurs est celui des dix derniers Debriefs en échec, sans fenêtre de temps : il ne redescend jamais.",
     see: ["statusdoctor"],
   },
   { ...MOD, couples: ["statusdoctor"] },

@@ -196,6 +196,7 @@ const SKIP_TEXT = {
   subagent:
     "le tour est celui d'un sous-agent ; dans le mod ce tour n'atteint jamais le Portail et rien n'est journalisé, seul le code du domaine répond ici",
   "turn-aborted": "vous avez interrompu le tour",
+  "no-request": "aucune requête n'a atteint le modèle (erreur d'API, limite d'usage) : le cache a pu expirer",
   "fork-running": "un Debrief de cette session est déjà en cours",
   "repo-excluded": "ce dépôt est dans <code>excludedRepos</code>",
   "daily-cap": "le plafond quotidien de Debriefs est atteint",
@@ -248,6 +249,7 @@ export function mountGate(): void {
   <div class="fields">
     <label class="field"><span>Nature</span><select id="g-kind"><option value="main">interactive, fil principal</option><option value="sub">sous-agent</option><option value="batch">non interactive</option></select></label>
     <label class="check"><input type="checkbox" id="g-aborted"> tour interrompu</label>
+    <label class="check"><input type="checkbox" id="g-norequest"> tour sans requête (erreur, limite d'usage)</label>
     <label class="check"><input type="checkbox" id="g-forking"> un fork tourne déjà</label>
     <label class="check"><input type="checkbox" id="g-excluded"> dépôt exclu</label>
     <label class="field"><span>Debriefs déjà faits dans la session</span><input type="number" id="g-inses" min="0" max="20" value="0"></label>
@@ -323,6 +325,7 @@ export function mountGate(): void {
         isInteractive: kind !== "batch",
         agentId: kind === "sub" ? "agent-1" : null,
         isAborted: on("g-aborted"),
+        hadRequest: !on("g-norequest"),
         forkRunning: on("g-forking"),
         repoRoot: "/repo",
         lastDebriefAt: sinceRaw === "" ? null : now - Number(sinceRaw) * 60_000,

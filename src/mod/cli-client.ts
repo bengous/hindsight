@@ -1,7 +1,7 @@
 import type { JsonValue } from "../domain/json.ts";
 import type { Host } from "./host.ts";
 
-import { isJsonObject, isNumber, numberField, parseJson, textField } from "../domain/json.ts";
+import { isJsonArray, isJsonObject, isNumber, numberField, parseJson, textField } from "../domain/json.ts";
 
 // @effect-diagnostics-next-line extendsNativeError:off -- src/mod imports no Effect: this error never enters an Effect failure channel.
 export class CliError extends Error {
@@ -46,15 +46,21 @@ export async function cliConfig(host: Host): Promise<JsonValue> {
   return runCli(host, ["config"]);
 }
 
-export type StatusSummary = { readonly pendingProposals: number; readonly failures: number };
+export type StatusSummary = { readonly pendingProposals: number; readonly recentFailures: number };
 
+const RECENT_FAILURE_MS = 24 * 60 * 60 * 1000;
+
+/** Counts the failed Debriefs of the last 24 hours only: an old failure leaves the status line, `hindsight status` keeps listing it. */
 export async function cliStatus(host: Host): Promise<StatusSummary> {
   const answer = await runCli(host, ["status"]);
   const failures = isJsonObject(answer) ? answer["failures"] : undefined;
+  const since = (await host.now()) - RECENT_FAILURE_MS;
 
   return {
     pendingProposals: numberField(answer, "pendingProposals") ?? 0,
-    failures: Array.isArray(failures) ? failures.length : 0,
+    recentFailures: isJsonArray(failures)
+      ? failures.filter((failure) => Date.parse(textField(failure, "at") ?? "") >= since).length
+      : 0,
   };
 }
 

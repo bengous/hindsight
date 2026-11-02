@@ -20,6 +20,7 @@ export type SkipReason =
   | "non-interactive"
   | "subagent"
   | "turn-aborted"
+  | "no-request"
   | "fork-running"
   | "repo-excluded"
   | "cooldown"
@@ -30,6 +31,8 @@ export type GateState = {
   readonly isInteractive: boolean;
   readonly agentId: string | null;
   readonly isAborted: boolean;
+  /** False when no request reached the model this turn (an API error, a usage limit): the prompt cache may have expired, and a fork would rebuild it. */
+  readonly hadRequest: boolean;
   readonly forkRunning: boolean;
   readonly repoRoot: string | null;
   /** When the session's last Debrief started, in ms; null before the first. */
@@ -98,6 +101,10 @@ export function gateSkip(state: GateState, facts: TurnFacts, config: HindsightCo
 
   if (state.isAborted) {
     return "turn-aborted";
+  }
+
+  if (!state.hadRequest) {
+    return "no-request";
   }
 
   if (state.forkRunning) {

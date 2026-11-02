@@ -121,9 +121,15 @@ async function endTurn(
   host: Host,
   turnId: string,
   isAborted: boolean,
+  hadRequest: boolean,
   messages: readonly SessionMessage[],
 ): Promise<void> {
-  const outcome = await afterTurn(host, config, { turnId, isAborted, agentId: null, isInteractive }, messages);
+  const outcome = await afterTurn(
+    host,
+    config,
+    { turnId, isAborted, hadRequest, agentId: null, isInteractive },
+    messages,
+  );
 
   if (outcome.kind !== "pass") {
     return;
@@ -435,7 +441,7 @@ export const register: Register = (on) => {
       const messages = await host.messages();
 
       host.after(1, () => {
-        void endTurn(host, e.turnId, e.isAborted, messages).catch(logFailure(host, "gate"));
+        void endTurn(host, e.turnId, e.isAborted, e.usage !== undefined, messages).catch(logFailure(host, "gate"));
       });
     }
 

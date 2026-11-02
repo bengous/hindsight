@@ -189,7 +189,7 @@ add(
     facts: [
       [
         "Sauts",
-        "non-interactive · subagent · turn-aborted · fork-running · repo-excluded · daily-cap · cooldown · quiet",
+        "non-interactive · subagent · turn-aborted · no-request · fork-running · repo-excluded · daily-cap · cooldown · quiet",
       ],
       ["Poids 1", "human_marker · tool_refused · after_interrupt · rule_file_edit"],
       ["Poids 0,5", "many_edits (≥ 3) · tool_errors (≥ 2) · git_commit"],

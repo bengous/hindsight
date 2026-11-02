@@ -16,6 +16,7 @@ import { changeState, countDebriefToday, debriefsToday, factsSince, takeFork } f
 export type TurnEnd = {
   readonly turnId: string;
   readonly isAborted: boolean;
+  readonly hadRequest: boolean;
   readonly agentId: string | null;
   readonly isInteractive: boolean;
 };
@@ -86,6 +87,7 @@ export async function afterTurn(
     isInteractive: turn.isInteractive,
     agentId: turn.agentId,
     isAborted: turn.isAborted,
+    hadRequest: turn.hadRequest,
     forkRunning: state.forkRunning,
     repoRoot,
     lastDebriefAt: state.lastDebriefAt,

@@ -303,7 +303,7 @@ export function countPendingProposals(db: SyncStore): number {
 export type StatusSnapshot = {
   readonly debriefs: Readonly<Record<string, number>>;
   readonly cacheShare: { readonly min: number | null; readonly mean: number | null };
-  readonly failures: ReadonlyArray<{ readonly id: string; readonly failure: string }>;
+  readonly failures: ReadonlyArray<{ readonly id: string; readonly failure: string; readonly at: string }>;
   readonly pendingProposals: number;
   readonly gate: Readonly<Record<string, number>>;
   readonly learn: { readonly runs: number; readonly costUsd: number; readonly running: boolean };
@@ -338,8 +338,8 @@ export function statusSnapshot(db: SyncStore): StatusSnapshot {
   return {
     debriefs,
     cacheShare: { min: share?.min ?? null, mean: share?.mean ?? null },
-    failures: db.all<{ id: string; failure: string }>(
-      "SELECT id, failure FROM debriefs WHERE status = 'failed' ORDER BY started_at DESC LIMIT 10",
+    failures: db.all<{ id: string; failure: string; at: string }>(
+      "SELECT id, failure, started_at AS at FROM debriefs WHERE status = 'failed' ORDER BY started_at DESC LIMIT 10",
     ),
     pendingProposals: countPendingProposals(db),
     gate,
