@@ -12,8 +12,8 @@ import { addHumanText } from "../domain/facts.ts";
 import { cleanHumanText } from "../domain/human.ts";
 import { isJsonArray, isJsonObject, isJsonValue, numberField, textField } from "../domain/json.ts";
 import { cliConfig, cliStatus, runCli } from "./cli-client.ts";
-import { afterTurn, classifyThenDebrief } from "./gate.ts";
-import { noticeLine, refreshStatus } from "./notice.ts";
+import { afterTurn, classifyThenDebrief, reachedModel } from "./gate.ts";
+import { noticeLine, refreshStaleStatus, refreshStatus } from "./notice.ts";
 import { drawReview, emptyReview, isPaneItem } from "./review-pane.tsx";
 import { changeState, pruneStore, readState } from "./state.ts";
 
@@ -132,6 +132,8 @@ async function endTurn(
   );
 
   if (outcome.kind !== "pass") {
+    await refreshStaleStatus(host);
+
     return;
   }
 
@@ -441,7 +443,7 @@ export const register: Register = (on) => {
       const messages = await host.messages();
 
       host.after(1, () => {
-        void endTurn(host, e.turnId, e.isAborted, e.usage !== undefined, messages).catch(logFailure(host, "gate"));
+        void endTurn(host, e.turnId, e.isAborted, reachedModel(e.usage), messages).catch(logFailure(host, "gate"));
       });
     }
 

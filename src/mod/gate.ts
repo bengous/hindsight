@@ -3,7 +3,7 @@ import type { ToolUse } from "../domain/facts.ts";
 import type { GateState } from "../domain/gate.ts";
 import type { Host } from "./host.ts";
 import type { SessionState } from "./state.ts";
-import type { SessionMessage, ToolUseSummary } from "claude-code";
+import type { SessionMessage, ToolUseSummary, TurnUsage } from "claude-code";
 
 import { addToolUses, isRefusalText, markInterrupted } from "../domain/facts.ts";
 import { classifierText, gateBrief, gatePasses, gateSignals, gateSkip } from "../domain/gate.ts";
@@ -20,6 +20,13 @@ export type TurnEnd = {
   readonly agentId: string | null;
   readonly isInteractive: boolean;
 };
+
+/** A real request sends tokens; Claude Code's usage-limit notice is a synthetic answer whose usage is all zeros. */
+export function reachedModel(usage: TurnUsage | undefined): boolean {
+  return (
+    usage !== undefined && usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens > 0
+  );
+}
 
 function inputString(use: ToolUseSummary, key: string): string | null {
   const value = use.input[key];

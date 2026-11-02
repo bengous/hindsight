@@ -48,9 +48,18 @@ export async function cliConfig(host: Host): Promise<JsonValue> {
 
 export type StatusSummary = { readonly pendingProposals: number; readonly recentFailures: number };
 
-const RECENT_FAILURE_MS = 24 * 60 * 60 * 1000;
+export const RECENT_FAILURE_MS = 24 * 60 * 60 * 1000;
 
-/** Counts the failed Debriefs of the last 24 hours only: an old failure leaves the status line, `hindsight status` keeps listing it. */
+function failedAt(failure: JsonValue): number {
+  const at = Date.parse(textField(failure, "at") ?? "");
+
+  if (Number.isNaN(at)) {
+    throw new TypeError(`hindsight status: a failure without a valid at: ${JSON.stringify(failure)}`);
+  }
+
+  return at;
+}
+
 export async function cliStatus(host: Host): Promise<StatusSummary> {
   const answer = await runCli(host, ["status"]);
   const failures = isJsonObject(answer) ? answer["failures"] : undefined;
@@ -58,9 +67,7 @@ export async function cliStatus(host: Host): Promise<StatusSummary> {
 
   return {
     pendingProposals: numberField(answer, "pendingProposals") ?? 0,
-    recentFailures: isJsonArray(failures)
-      ? failures.filter((failure) => Date.parse(textField(failure, "at") ?? "") >= since).length
-      : 0,
+    recentFailures: isJsonArray(failures) ? failures.filter((failure) => failedAt(failure) >= since).length : 0,
   };
 }
 

@@ -4,9 +4,9 @@ import type { SessionMessage } from "claude-code";
 
 import { describe, expect, test } from "bun:test";
 
-import { CliError, runCli } from "./cli-client.ts";
+import { CliError, cliStatus, runCli } from "./cli-client.ts";
 import { cacheShareOf } from "./debrief.ts";
-import { lastTurnTools } from "./gate.ts";
+import { lastTurnTools, reachedModel } from "./gate.ts";
 import { noticeLine } from "./notice.ts";
 import { factsSince, freshState, pruneStore, readState } from "./state.ts";
 
@@ -133,6 +133,25 @@ describe("runCli", () => {
     ).rejects.toBeInstanceOf(CliError);
     // oxlint-disable-next-line typescript/await-thenable -- bun-types declares `rejects` matchers as returning void, but they return a promise the test must await.
     await expect(runCli(fakeHost({ exitCode: 0, stdout: "not json" }), ["status"])).rejects.toThrow("not a JSON line");
+  });
+});
+
+describe("cliStatus", () => {
+  test("names a failure without a valid at instead of dropping it", async () => {
+    const stdout = JSON.stringify({ pendingProposals: 0, failures: [{ id: "d-1", failure: "cache:0.00" }] });
+    // oxlint-disable-next-line typescript/await-thenable -- bun-types declares `rejects` matchers as returning void, but they return a promise the test must await.
+    await expect(cliStatus(fakeHost({ exitCode: 0, stdout }))).rejects.toThrow("a failure without a valid at");
+  });
+});
+
+describe("reachedModel", () => {
+  test("a usage-limit notice's zero usage is no request", () => {
+    const zero = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+    expect(reachedModel(undefined)).toBe(false);
+    expect(reachedModel({ ...zero, model: "<synthetic>" })).toBe(false);
+    expect(reachedModel({ ...zero, input_tokens: 3, cache_read_input_tokens: 60_000, model: "claude-opus-5-5" })).toBe(
+      true,
+    );
   });
 });
 

@@ -234,7 +234,7 @@ add(
   {
     kicker: "src/mod/notice.ts",
     title: "La Notice",
-    lead: "Une ligne de statut, réécrite depuis <code>hindsight status</code> au démarrage, après chaque Décision et chaque Debrief : « N Proposal(s) en attente · /hindsight review », « N Debrief(s) en erreur · /hindsight status » pour les échecs des dernières 24 h, ou rien. Claude ne la lit pas.",
+    lead: "Une ligne de statut, réécrite depuis <code>hindsight status</code> au démarrage, après chaque Décision et chaque Debrief, et en fin de tour quand elle a plus d'une heure : « N Proposal(s) en attente · /hindsight review », « N Debrief(s) en erreur · /hindsight status » pour les échecs des dernières 24 h, ou rien. Claude ne la lit pas.",
     io: [
       ["Reçoit", "pendingProposals et les failures de status des dernières 24 h"],
       ["Produit", "le texte de la ligne, ou undefined qui l'efface"],

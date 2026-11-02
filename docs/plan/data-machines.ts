@@ -48,7 +48,7 @@ const GATE_CHECKS: readonly Check[] = [
   {
     id: "c2r",
     label: "Tour sans requête ?",
-    lead: "turn.complete sans usage : aucune requête n'a atteint le modèle (erreur d'API, limite d'usage). Le cache a pu expirer pendant l'attente, un fork le reconstruirait.",
+    lead: "turn.complete sans usage, ou avec un usage à zéro (l'avis de limite d'usage est une réponse synthétique) : aucune requête n'a atteint le modèle. Le cache a pu expirer pendant l'attente, un fork le reconstruirait.",
     skip: "oui : no-request",
     skipBy: "code",
     skipDesc: "",
