@@ -96,4 +96,9 @@ export const MIGRATIONS: readonly string[] = [
   );`,
   `ALTER TABLE debriefs ADD COLUMN answer TEXT;`,
   `ALTER TABLE notes ADD COLUMN loaded_rules_json TEXT NOT NULL DEFAULT '[]';`,
+  `CREATE TABLE learn_groups (
+    group_key TEXT PRIMARY KEY,
+    attempted_at TEXT NOT NULL,
+    read_note_ids_json TEXT NOT NULL DEFAULT '[]'
+  );`,
 ];

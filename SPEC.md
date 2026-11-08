@@ -80,6 +80,7 @@ Debrief (fork reusing the session's cache)
 
 - Starts on its own, in the background, right after the **Debrief** that brings pending **Notes** past the threshold (eight, and six hours since the previous run, both configurable). Nothing runs on a calendar. One run at a time.
 - Reads pending **Steers** and **Observations** across **Sessions**, the current **Rule Files**, the **Rules** each **Session** had loaded, and the **Ledger**.
+- Makes one model call per repository checkout and one for the global **Rule Files**, the one tried longest ago first, within a budget per run. A call is made again only once its pending **Notes** include one its previous answer did not read; it then reads all of them, so recurrence stays visible.
 - Groups **Notes** by **Lesson**, counts **Prevalence**, and gives each group a **Verdict**: missing, ignored, misplaced, conflict, unclear or hold.
 - An **Observation** can carry a **Proposal** on its own when it is clear enough; a weaker one waits until it recurs, under the **Verdict** hold.
 - Never proposes a **Watch Task** as a **Rule**. When a hook or a check could carry it instead, the **Proposal** describes that change for a **Handoff**.

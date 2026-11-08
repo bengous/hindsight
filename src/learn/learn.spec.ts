@@ -2,6 +2,7 @@ import type { HindsightConfig } from "../domain/config.ts";
 import type { JsonValue } from "../domain/json.ts";
 import type { StoreService } from "../store/db.ts";
 import type { ProposalRow } from "../store/queries.ts";
+import type { ModelRequest } from "./claude.ts";
 import type { GateContext, GateResult } from "./gates.ts";
 import type { LearnGroup, NoteView } from "./prompt.ts";
 import type { LearnReport } from "./run.ts";
@@ -289,6 +290,21 @@ describe("gateLearn", () => {
   });
 });
 
+function recordingRunner(
+  answers: ReadonlyArray<JsonValue | ModelError>,
+  seen: ModelRequest[],
+): ClaudeRunner["Service"] {
+  const scripted = scriptedRunner(answers);
+
+  return {
+    run: (request) => {
+      seen.push(request);
+
+      return scripted.run(request);
+    },
+  };
+}
+
 describe("learn", () => {
   let store: StoreService;
 
@@ -492,6 +508,122 @@ describe("learn", () => {
       { id: "n1", status: "expired" },
       { id: "n2", status: "pending" },
     ]);
+  });
+
+  const runWith = async (
+    runner: ClaudeRunner["Service"],
+    nowIso = NOW,
+    runConfig: HindsightConfig = config,
+  ): Promise<LearnReport> =>
+    Effect.runPromise(
+      learn({ ifDue: false, inventoryEnv: { home } }, runConfig, nowIso).pipe(
+        Effect.provideService(Store, store),
+        Effect.provideService(ClaudeRunner, runner),
+      ),
+    );
+
+  const addNote = async (id: string, repoRoot: string | null): Promise<void> =>
+    Effect.runPromise(
+      store.transaction((db) =>
+        insertNote(db, {
+          id,
+          debriefId: "d1",
+          sessionId: `s-${id}`,
+          repoRoot,
+          at: NOW,
+          kind: "steer",
+          status: "pending",
+          evidenceId: `s-${id}:u`,
+          lesson: "Install packages with pnpm.",
+          body: { quote: `correction ${id}: pas de npm`, habit: true },
+          loadedRules: [AGENTS],
+        }),
+      ),
+    );
+
+  test("a group whose pending Notes the previous answer all read is not asked again", async () => {
+    await seed(3);
+    expect(await run([{ candidates: [] }])).toMatchObject({ status: "complete", costUsd: 0.1 });
+
+    const seen: ModelRequest[] = [];
+    const second = await runWith(recordingRunner([], seen));
+
+    expect(seen).toHaveLength(0);
+    expect(second).toMatchObject({ status: "complete", costUsd: 0, failures: [], dropped: { unchanged: 3 } });
+  });
+
+  test("a new Note brings its group back with every pending Note of that group", async () => {
+    await seed(3);
+    await run([{ candidates: [] }]);
+    await addNote("n4", repo.root);
+
+    const seen: ModelRequest[] = [];
+    const second = await runWith(recordingRunner([{ candidates: [] }], seen));
+
+    expect(second).toMatchObject({ status: "complete", costUsd: 0.1, failures: [] });
+    expect(seen).toHaveLength(1);
+
+    for (const id of ["n1", "n2", "n3", "n4"]) {
+      expect(seen[0]?.prompt).toContain(`"id": "${id}"`);
+    }
+  });
+
+  test("a failed answer leaves its group to ask at the next run", async () => {
+    await seed(3);
+
+    const overBudget = new ModelError({
+      kind: "result-error",
+      label: "learn",
+      detail: "subtype error_max_budget_usd: ",
+      costUsd: 0.3,
+    });
+
+    expect(await run([overBudget])).toMatchObject({ status: "failed" });
+    expect(await run([{ candidates: [] }])).toMatchObject({ status: "complete", costUsd: 0.1, failures: [] });
+  });
+
+  test("groups go in the order of their last attempt, so the budget starves none of them", async () => {
+    await seed(3);
+    await addNote("g1", null);
+    const tight: HindsightConfig = { ...config, learn: { ...config.learn, maxBudgetUsd: 0.11 } };
+
+    const first: ModelRequest[] = [];
+    const one = await runWith(recordingRunner([{ candidates: [] }], first), NOW, tight);
+
+    expect(first.map((request) => request.label)).toEqual([`learn ${repo.root}`]);
+    expect(one.dropped).toEqual({ budget: 1 });
+
+    await addNote("n4", repo.root);
+    const second: ModelRequest[] = [];
+    const two = await runWith(recordingRunner([{ candidates: [] }], second), "2026-10-13T18:00:00.000Z", tight);
+
+    expect(second.map((request) => request.label)).toEqual(["learn global"]);
+    expect(two.dropped).toEqual({ budget: 4 });
+  });
+
+  test("--if-due counts a failed run in the interval", async () => {
+    await seed(3);
+    await Effect.runPromise(
+      store.transaction((db) =>
+        db.run(
+          "INSERT INTO learn_runs (id, started_at, finished_at, status, failure) VALUES ('f', ?, ?, 'failed', 'x: result-error')",
+          [NOW, NOW],
+        ),
+      ),
+    );
+    expect(await run([], true)).toMatchObject({ status: "skipped", reason: "interval" });
+  });
+
+  test("a run left running by a dead process does not hold the next one back", async () => {
+    await seed(3);
+    await Effect.runPromise(
+      store.transaction((db) =>
+        db.run(
+          "INSERT INTO learn_runs (id, started_at, status) VALUES ('dead', '2026-10-13T08:00:00.000Z', 'running')",
+        ),
+      ),
+    );
+    expect(await run([{ candidates: [] }], true)).toMatchObject({ status: "complete", costUsd: 0.1 });
   });
 });
 
