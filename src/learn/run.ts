@@ -328,6 +328,7 @@ export const learn = (
       minDays: MIN_DAYS,
       rejected,
       pending: reserved.pending,
+      sizeBudgetChars: config.rules.sizeBudgetChars,
     };
 
     for (const group of groups) {
@@ -341,7 +342,7 @@ export const learn = (
       const request: ModelRequest = {
         label: `learn ${group.key}`,
         model: config.learn.model,
-        prompt: learnPrompt(group),
+        prompt: learnPrompt(group, config.rules.sizeBudgetChars),
         jsonSchema,
         maxBudgetUsd: remaining,
         timeoutMs: config.learn.timeoutMs,
@@ -372,7 +373,7 @@ export const learn = (
       proposals += gated.proposals.length;
     }
 
-    const pruned = yield* prune(repoRoots, options.inventoryEnv, nowIso).pipe(
+    const pruned = yield* prune(repoRoots, options.inventoryEnv, config.rules.sizeBudgetChars, nowIso).pipe(
       Effect.catch((error) => {
         failures.push(`prune: ${error instanceof Error ? error.message : String(error)}`);
 

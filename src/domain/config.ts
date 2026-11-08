@@ -19,6 +19,7 @@ export type HindsightConfig = {
     readonly maxBudgetUsd: number;
     readonly timeoutMs: number;
   };
+  readonly rules: { readonly sizeBudgetChars: number };
   readonly notes: { readonly windowDays: number };
   readonly review: { readonly pageSize: number };
   readonly excludedRepos: readonly string[];
@@ -41,6 +42,7 @@ export const defaultConfig: HindsightConfig = {
     maxBudgetUsd: 2,
     timeoutMs: 15 * 60 * 1000,
   },
+  rules: { sizeBudgetChars: 10_000 },
   notes: { windowDays: 30 },
   review: { pageSize: 3 },
   excludedRepos: [],
@@ -63,6 +65,7 @@ export function readConfig(input: JsonValue | undefined): HindsightConfig {
   const root = isJsonObject(input) ? input : {};
   const gate = isJsonObject(root["gate"]) ? root["gate"] : {};
   const learn = isJsonObject(root["learn"]) ? root["learn"] : {};
+  const rules = isJsonObject(root["rules"]) ? root["rules"] : {};
   const notes = isJsonObject(root["notes"]) ? root["notes"] : {};
   const review = isJsonObject(root["review"]) ? root["review"] : {};
   const excluded = root["excludedRepos"];
@@ -85,6 +88,7 @@ export function readConfig(input: JsonValue | undefined): HindsightConfig {
       maxBudgetUsd: num(learn, "maxBudgetUsd", defaultConfig.learn.maxBudgetUsd),
       timeoutMs: num(learn, "timeoutMs", defaultConfig.learn.timeoutMs),
     },
+    rules: { sizeBudgetChars: num(rules, "sizeBudgetChars", defaultConfig.rules.sizeBudgetChars) },
     notes: { windowDays: num(notes, "windowDays", defaultConfig.notes.windowDays) },
     review: { pageSize: num(review, "pageSize", defaultConfig.review.pageSize) },
     excludedRepos: Array.isArray(excluded) ? excluded.filter(isString) : [],

@@ -59,6 +59,10 @@ _Avoid_: bullet, guideline, instruction
 **Scope**:
 Where a rule applies: global (every repository), repository, or path (the files that match the rule file's path patterns).
 
+**Size Budget**:
+The most characters a rule file may hold, the same for every rule file. Learn never proposes an edit that takes a rule file past it or lengthens one already past it; Prune proposes a handoff for a rule file over it.
+_Avoid_: budget alone (Learn's cost per run is a budget too), line budget, quota
+
 **Loaded Rule**:
 A rule that was in the agent's context at a given moment of a session.
 
@@ -95,7 +99,7 @@ The job that reads steers and observations across sessions and proposes to add, 
 _Avoid_: harvest, extraction, dreaming, run
 
 **Prune**:
-The job that proposes to fix or remove rules from two sources only: the stale rules a debrief reports, once the code confirms the edit, and the dead references its code checks find. It never reads the human's messages.
+The job that proposes to fix, remove or trim rules from two sources only: the stale rules a debrief reports, once the code confirms the edit, and its code checks, which find dead references and rule files over the size budget. It never reads the human's messages.
 _Avoid_: cleanup, audit, recheck
 
 ### Review

@@ -8,6 +8,7 @@ import { Schema } from "effect";
 
 import { utcDay } from "../domain/text.ts";
 import { fingerprint, newId } from "../platform/ids.ts";
+import { fitsBudget } from "../rules/budget.ts";
 
 export class LearnError extends Schema.TaggedError<LearnError>()("LearnError", {
   group: Schema.String,
@@ -24,6 +25,7 @@ export type GateContext = {
   /** Fingerprint → sessions the Ledger counted when it last rejected it. */
   readonly rejected: ReadonlyMap<string, number>;
   readonly pending: ReadonlySet<string>;
+  readonly sizeBudgetChars: number;
 };
 
 export type GateResult = {
@@ -125,28 +127,36 @@ function resolveTarget(candidate: Candidate, group: LearnGroup): Target | Droppe
   return { kind: "new", path: candidate.targetPath, repoRoot: root };
 }
 
-function editApplies(change: Change, text: string): Dropped | null {
+type Changed = { readonly before: string; readonly after: string };
+
+function changedText(change: Change, target: Target): Changed | Dropped {
+  const before = target.kind === "existing" ? target.text : "";
+
   if (change.kind !== "edit") {
-    return null;
+    return { before, after: before };
+  }
+
+  if (target.kind === "new") {
+    return { before, after: change.edits[0]?.newText ?? "" };
   }
 
   if (change.edits.length === 0) {
     return { reason: "empty-edit", detail: "" };
   }
 
-  let current = text;
+  let after = before;
 
   for (const edit of change.edits) {
-    const count = edit.oldText === "" ? 0 : occurrences(current, edit.oldText);
+    const count = edit.oldText === "" ? 0 : occurrences(after, edit.oldText);
 
     if (count !== 1) {
       return { reason: count === 0 ? "old-text-not-found" : "old-text-ambiguous", detail: edit.oldText.slice(0, 80) };
     }
 
-    current = current.replace(edit.oldText, () => edit.newText);
+    after = after.replace(edit.oldText, () => edit.newText);
   }
 
-  return null;
+  return { before, after };
 }
 
 function sharesEvidence(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
@@ -311,13 +321,18 @@ function gateCandidate(
     return { reason: "style", detail: style };
   }
 
-  const applies = target.kind === "existing" ? editApplies(candidate.change, target.text) : null;
+  const changed = changedText(candidate.change, target);
 
-  if (applies !== null) {
-    return applies;
+  if ("reason" in changed) {
+    return changed;
   }
 
   const targetPath = target.kind === "existing" ? target.file.sourcePath : target.path;
+
+  if (!fitsBudget(changed.before, changed.after, context.sizeBudgetChars)) {
+    return { reason: "over-budget", detail: `${targetPath}: ${changed.after.length} characters` };
+  }
+
   const print = fingerprint(targetPath, candidate.lessonEn);
   const rejectedAt = context.rejected.get(print);
 

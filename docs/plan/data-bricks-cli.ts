@@ -156,7 +156,7 @@ add(
   "cli",
   "learncontract",
   "learn/prompt.ts · schema.ts · gates.ts",
-  "prompt · JSON Schema · 13 portes",
+  "prompt · JSON Schema · 14 portes",
   {
     kicker: "src/learn/prompt.ts · schema.ts · gates.ts",
     title: "Le contrat de Learn",
@@ -171,13 +171,17 @@ add(
     facts: [
       [
         "Portes, dans l'ordre",
-        "id inconnu (tout le groupe) · no-evidence · watch-task · hold · <verdict>-without-rule · below-threshold · unknown-target · new-file-outside-rules · global-group-repo-target · global-one-repo · style · empty-edit · old-text-not-found · old-text-ambiguous · ledger-rejected · already-proposed · duplicate-evidence",
+        "id inconnu (tout le groupe) · no-evidence · watch-task · hold · <verdict>-without-rule · below-threshold · unknown-target · new-file-outside-rules · global-group-repo-target · global-one-repo · style · empty-edit · old-text-not-found · old-text-ambiguous · over-budget · ledger-rejected · already-proposed · duplicate-evidence",
       ],
       [
         "Seuil",
         "3 sessions et 2 jours, ou une Steer explicite, ou conflict sur une règle chargée, ou une justification avec une Observation",
       ],
       ["Style refusé", "dates, hashes, vN.N, « currently », « no longer », « replaced by »…"],
+      [
+        "Budget de taille",
+        "le fichier après la modification ne dépasse ni rules.sizeBudgetChars ni sa longueur actuelle, s'il est déjà au-delà ; le prompt donne la longueur de chaque Rule File",
+      ],
     ],
     warn: "Le champ <code>scope</code> du modèle est décodé puis ignoré : la portée vient du fichier cible. Les textes de preuve partent au prompt masqués mais sont stockés bruts dans la Proposal.",
     see: ["learn", "proposal"],
@@ -188,21 +192,23 @@ add(
 add(
   "cli",
   "prune",
-  "learn/prune.ts · rules/stale.ts",
-  "globs morts · chemins · scripts",
+  "learn/prune.ts · rules/stale.ts · rules/budget.ts",
+  "globs morts · chemins · scripts · taille",
   {
-    kicker: "src/learn/prune.ts · src/rules/stale.ts",
+    kicker: "src/learn/prune.ts · src/rules/stale.ts · src/rules/budget.ts",
     title: "Prune",
-    lead: "Sans modèle. Pour chaque Rule File d'un dépôt : un motif <code>paths:</code> qui ne trouve aucun fichier, un chemin cité en code inline qui n'existe plus, un <code>bun run &lt;script&gt;</code> absent des package.json. Chaque trouvaille devient une Proposal en description, source prune, filtrée par le Ledger.",
+    lead: "Sans modèle. Pour chaque Rule File d'un dépôt : un motif <code>paths:</code> qui ne trouve aucun fichier, un chemin cité en code inline qui n'existe plus, un <code>bun run &lt;script&gt;</code> absent des package.json. Pour chaque Rule File, global compris : une longueur au-delà de <code>rules.sizeBudgetChars</code>. Chaque trouvaille devient une Proposal en description, source prune, filtrée par le Ledger.",
     io: [
-      ["Reçoit", "des racines de dépôt (celles de Learn, ou notes ∪ proposals plus --repo)"],
+      ["Reçoit", "des racines de dépôt (celles de Learn, ou notes ∪ proposals plus --repo), le budget de taille"],
       [
         "Produit",
-        "des Proposals description, scope repo, Prevalence 0 session ; un rapport {repos, findings, proposals, skipped}",
+        "des Proposals description, scope repo (la portée du fichier pour le budget), Prevalence 0 session ; un rapport {repos, findings, proposals, skipped}",
       ],
     ],
-    facts: [["Empreinte", String.raw`sha1("stale\n" + id de la trouvaille)`]],
-    warn: "Une description ne s'accepte pas : seul un Handoff ou un rejet la ferme. Les fichiers globaux sont sautés, alors que la SPEC dit « chaque Rule File ». Une empreinte rejetée une fois bloque pour toujours.",
+    facts: [
+      ["Empreinte", String.raw`sha1("stale\n" + id de la trouvaille) ; sha1("budget\n" + chemin + "\n" + budget)`],
+    ],
+    warn: "Une description ne s'accepte pas : seul un Handoff ou un rejet la ferme. Les contrôles de références sautent les fichiers globaux, alors que la SPEC dit « chaque Rule File ». Une empreinte rejetée une fois bloque pour toujours ; celle du budget revient quand le budget change.",
     see: ["inventory", "learn"],
   },
   { ...CLI, couples: ["inventory", "learn"] },

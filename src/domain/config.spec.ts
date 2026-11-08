@@ -15,5 +15,7 @@ describe("readConfig", () => {
     expect(config.gate.classifierModel).toBe("haiku");
     expect(config.gate.dailyCap).toBe(20);
     expect(config.excludedRepos).toEqual(["/r"]);
+    expect(config.rules.sizeBudgetChars).toBe(10_000);
+    expect(readConfig({ rules: { sizeBudgetChars: 8000 } }).rules.sizeBudgetChars).toBe(8000);
   });
 });

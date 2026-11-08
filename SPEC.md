@@ -84,13 +84,14 @@ Debrief (fork reusing the session's cache)
 - An **Observation** can carry a **Proposal** on its own when it is clear enough; a weaker one waits until it recurs, under the **Verdict** hold.
 - Never proposes a **Watch Task** as a **Rule**. When a hook or a check could carry it instead, the **Proposal** describes that change for a **Handoff**.
 - Places each change by **Scope**: the global **Rule File** only when **Steers** from at least two repositories support it, or when the human stated it for every repository; otherwise the repository's **Rule Files**, path-scoped when that fits.
+- Keeps each **Rule File** within the **Size Budget** (10,000 characters, configurable; ADR 0007): an edit may grow a file up to the budget and never lengthens a file already past it. A full file takes a new **Rule** only by replacing or merging one; otherwise the **Rule** goes to a path-scoped **Rule File**.
 - Never proposes again what the **Ledger** shows as rejected, unless the evidence has clearly grown; the rejection reason informs it.
 
 ### Prune
 
 - Never reads a **Human Message**: it acts on what a **Debrief** reports and on its own code checks.
 - Turns a suspected **Stale Rule** whose edit the code confirms into a **Proposal** at once.
-- On the same rhythm as **Learn**, checks every **Rule File** in code, without a model: path patterns that match no file, cited paths that are gone, cited commands that no longer exist.
+- On the same rhythm as **Learn**, checks every **Rule File** in code, without a model: path patterns that match no file, cited paths that are gone, cited commands that no longer exist, and a file over the **Size Budget**, which becomes a description for a **Handoff** that trims it.
 
 ### Proposals
 
@@ -127,7 +128,6 @@ Debrief (fork reusing the session's cache)
 
 ## Non-goals
 
-- No line budget per **Rule File**.
 - hindsight does not run or chain Claude Code's built-in commands (/fewer-permission-prompts, /auto-mode-setup, /insights); the human runs them when needed.
 - **Prune** does not scan the git history for **Rules** that later commits made wrong; it relies on the **Debrief** and on its code checks.
 
