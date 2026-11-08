@@ -56,6 +56,7 @@ A single session may carry a candidate when the human stated the way of working 
 PLACEMENT AND WORDING, following the human's conventions
 - A Rule File holds Constraints only: guidance on something the agent does anyway. A watch task (keep docs current, notice conventions, check X each time) does not belong there: set isWatchTask true and describe the hook or check that would carry it instead.
 - The root AGENTS.md is a short index; detail belongs in path-scoped files under .claude/rules/ with "paths" frontmatter.
+- A Rule File holds at most sizeBudgetChars characters; ruleFiles[].chars is each file's length. The code drops an edit that takes a file past the budget or lengthens a file already past it. For a file without room, replace or merge an existing rule, move the rule to a path-scoped file, or describe the restructuring for a handoff.
 - The global Rule File takes a lesson only when notes from at least two repositories support it, or when the human stated it for every repository. Otherwise target the repository's Rule Files, path-scoped when it fits.
 - Document only what an agent cannot infer from the code and no tool enforces.
 - Rule text states the current design: no dates, commit hashes, version numbers or time words (currently, no longer, replaced by).
@@ -73,14 +74,16 @@ TEXT
 
 const RULE_TEXT_MAX = 12_000;
 
-export function learnPrompt(group: LearnGroup): string {
+export function learnPrompt(group: LearnGroup, sizeBudgetChars: number): string {
   const data = {
     scope: group.key === GLOBAL_GROUP ? "global rules of the user" : `repository ${group.key}`,
     repository: group.repoRoot,
+    sizeBudgetChars,
     ruleFiles: group.rules.map((rule) => ({
       sourcePath: rule.file.sourcePath,
       scope: rule.file.scope,
       paths: rule.file.paths,
+      chars: rule.text.length,
       bullets: rule.file.bullets.map((bullet) => ({ id: bullet.id, line: bullet.line, text: bullet.text })),
       text: rule.text.slice(0, RULE_TEXT_MAX),
     })),

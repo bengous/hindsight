@@ -17,7 +17,7 @@ You correct Claude Code, and the same correction comes back a week later in anot
 
 1. **Debrief Gate.** At the end of a turn, a Claude Code mod reads what happened since the session's previous Debrief: your own messages, the tools the agent used, refusals, errors, Rule File edits, commits. Code decides first; a small model confirms.
 2. **Debrief.** A fork of your session, served from its own prompt cache, answers five questions: did an edit make a loaded rule wrong, does a new rule deserve its place, which rule hindered, what was guessed for lack of a rule, what did you correct. Its answer is checked word for word against the transcript before anything is stored.
-3. **Learn and Prune.** When enough Notes wait, one Opus call per repository turns what recurs into Proposals; code gates keep ids, counts, scope and style honest. Prune checks the Rule Files for dead globs, gone paths and missing scripts.
+3. **Learn and Prune.** When enough Notes wait, one Opus call per repository turns what recurs into Proposals; code gates keep ids, counts, scope, style and size honest. Prune checks the Rule Files for dead globs, gone paths, missing scripts and files over the size budget.
 4. **Review.** At your next session start, one status line says how many Proposals wait. `/hindsight review` opens a pane: the target, the diff, the reasoning, the quotes. Accept commits one file in its repository (never pushed); a global Rule File is written where the agents load it. Reject needs a reason. Handoff writes instructions you give to an agent session.
 
 Nothing of hindsight enters the agent's context.
@@ -49,7 +49,7 @@ To work on it, add the checkout as a marketplace and install from it: `claude pl
 
 ## Configuration
 
-`$XDG_CONFIG_HOME/hindsight/config.json`, every field optional; `hindsight config` prints the effective values. Gate: `threshold` (1.0), `cooldownMs` (90000) times the session's Debriefs up to `cooldownMaxSteps` (5), `quietMinTools` (3), `dailyCap` (20), `minCacheShare` (0.9), `classifierModel`. Learn: `pendingNotes` (8), `minIntervalMs` (6 h), `model` (`opus`), `maxBudgetUsd` (2), `timeoutMs`. `notes.windowDays` (30), `review.pageSize` (3), `excludedRepos` (checkout roots the Gate skips).
+`$XDG_CONFIG_HOME/hindsight/config.json`, every field optional; `hindsight config` prints the effective values. Gate: `threshold` (1.0), `cooldownMs` (90000) times the session's Debriefs up to `cooldownMaxSteps` (5), `quietMinTools` (3), `dailyCap` (20), `minCacheShare` (0.9), `classifierModel`. Learn: `pendingNotes` (8), `minIntervalMs` (6 h), `model` (`opus`), `maxBudgetUsd` (2), `timeoutMs`. `rules.sizeBudgetChars` (10000), the most characters Learn lets a Rule File reach. `notes.windowDays` (30), `review.pageSize` (3), `excludedRepos` (checkout roots the Gate skips).
 
 ## State
 

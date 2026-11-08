@@ -71,7 +71,7 @@ add(
   {
     kicker: "src/domain/config.ts · src/store/paths.ts",
     title: "La configuration",
-    lead: "Chaque champ est optionnel et posé sur les défauts du domaine : seuil, refroidissement, plafond quotidien, plancher de cache, modèle du classifieur, seuils et budget de Learn, fenêtre des Notes, taille d'une passe de Review, dépôts exclus. <code>hindsight config</code> imprime les valeurs effectives.",
+    lead: "Chaque champ est optionnel et posé sur les défauts du domaine : seuil, refroidissement, plafond quotidien, plancher de cache, modèle du classifieur, seuils et budget de Learn, budget de taille des Rule Files, fenêtre des Notes, taille d'une passe de Review, dépôts exclus. <code>hindsight config</code> imprime les valeurs effectives.",
     io: [
       ["Lu par", "le mod à session.start, chaque commande du CLI"],
       ["Défauts", "src/domain/config.ts"],
@@ -85,6 +85,7 @@ add(
         "Learn",
         `pendingNotes ${L.pendingNotes} · minIntervalMs ${L.minIntervalMs / 3_600_000} h · model ${L.model} · maxBudgetUsd ${L.maxBudgetUsd} · timeoutMs ${L.timeoutMs / 60_000} min`,
       ],
+      ["Rule Files", `sizeBudgetChars ${defaultConfig.rules.sizeBudgetChars}`],
       ["Notes, Review", `windowDays ${defaultConfig.notes.windowDays} · pageSize ${defaultConfig.review.pageSize}`],
     ],
     see: ["configrules"],

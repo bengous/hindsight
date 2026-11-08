@@ -318,7 +318,7 @@ export const MACHINES: readonly Machine[] = [
         to: "pending",
         event: "Learn garde",
         by: "model",
-        guard: "les treize portes de gateLearn passent",
+        guard: "les quatorze portes de gateLearn passent",
         desc: "Une ligne proposals source <code>learn</code>, avec jusqu'à huit preuves, la Prevalence comptée par le code, le Verdict du modèle.",
         src: "src/learn/run.ts · learn · src/learn/gates.ts · gateLearn",
       },
@@ -329,7 +329,7 @@ export const MACHINES: readonly Machine[] = [
         event: "Prune trouve",
         by: "code",
         guard: "empreinte ni en attente ni jamais rejetée",
-        desc: "Une Proposal en description, scope repo, Prevalence 0 session : elle ne peut qu'être rejetée ou mise en Handoff.",
+        desc: "Une Proposal en description, scope repo (la portée du fichier pour le budget de taille), Prevalence 0 session : elle ne peut qu'être rejetée ou mise en Handoff.",
         src: "src/learn/prune.ts · prune",
       },
       {

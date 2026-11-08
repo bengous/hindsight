@@ -5,6 +5,7 @@ import type { ProposalRow } from "../store/queries.ts";
 import type { ModelRequest } from "./claude.ts";
 import type { GateContext, GateResult } from "./gates.ts";
 import type { LearnGroup, NoteView } from "./prompt.ts";
+import type { PruneReport } from "./prune.ts";
 import type { LearnReport } from "./run.ts";
 import type { Candidate } from "./schema.ts";
 
@@ -13,14 +14,16 @@ import { Effect } from "effect";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { tempDir, tempRepo } from "../../fixtures/rules/repo.ts";
+import { tempDir, tempRepo, writeTree } from "../../fixtures/rules/repo.ts";
 import { defaultConfig } from "../domain/config.ts";
 import { fingerprint } from "../platform/ids.ts";
 import { Store, makeStore } from "../store/db.ts";
+import { decodeChange } from "../store/proposal.ts";
 import { insertDebrief, insertNote } from "../store/queries.ts";
 import { ClaudeRunner, ModelError, scriptedRunner } from "./claude.ts";
 import { gateLearn } from "./gates.ts";
-import { knownRepos, prune } from "./prune.ts";
+import { learnPrompt } from "./prompt.ts";
+import { budgetFingerprint, knownRepos, prune } from "./prune.ts";
 import { learn, planGroups, toNoteView } from "./run.ts";
 
 const NOW = "2026-10-13T12:00:00.000Z";
@@ -119,7 +122,12 @@ const context: GateContext = {
   minDays: 2,
   rejected: new Map(),
   pending: new Set(),
+  sizeBudgetChars: 10_000,
 };
+
+const withBudget = (sizeBudgetChars: number): GateContext => ({ ...context, sizeBudgetChars });
+
+const dropReasons = (result: GateResult): string[] => result.dropped.map((drop) => drop.reason);
 
 describe("gateLearn", () => {
   test("a well-supported missing rule becomes a Proposal with code-computed prevalence", () => {
@@ -222,6 +230,43 @@ describe("gateLearn", () => {
     );
 
     expect(result.proposals[0]).toMatchObject({ scope: "path", targetPath: `${repo.root}/.claude/rules/packages.md` });
+  });
+
+  test("the size budget: a file grows up to it, a full file takes only an edit that does not lengthen it, a new file must fit", () => {
+    const grown = RULE_TEXT.length + "\n- Install packages with pnpm, never npm.".length;
+
+    const replace = candidate({
+      change: { kind: "edit", edits: [{ oldText: "- Keep commits small.", newText: "- Use pnpm." }] },
+    });
+
+    const rewrite = candidate({
+      verdict: "conflict",
+      ruleBulletIds: [bulletId],
+      change: { kind: "edit", edits: [{ oldText: "- Keep commits small.", newText: "- Keep commits short." }] },
+    });
+
+    const create = candidate({
+      targetPath: `${repo.root}/.claude/rules/packages.md`,
+      change: {
+        kind: "edit",
+        edits: [{ oldText: "", newText: "---\npaths:\n  - src/**\n---\n- Install packages with pnpm.\n" }],
+      },
+    });
+
+    expect(gateLearn(group, { candidates: [candidate()] }, withBudget(grown)).proposals).toHaveLength(1);
+    expect(dropReasons(gateLearn(group, { candidates: [candidate()] }, withBudget(grown - 1)))).toEqual([
+      "over-budget",
+    ]);
+
+    const full = withBudget(RULE_TEXT.length);
+    expect(dropReasons(gateLearn(group, { candidates: [candidate()] }, full))).toEqual(["over-budget"]);
+    expect(gateLearn(group, { candidates: [replace] }, full).proposals).toHaveLength(1);
+
+    const past = withBudget(RULE_TEXT.length - 30);
+    expect(dropReasons(gateLearn(group, { candidates: [candidate()] }, past))).toEqual(["over-budget"]);
+    expect(gateLearn(group, { candidates: [rewrite] }, past).proposals).toHaveLength(1);
+
+    expect(dropReasons(gateLearn(group, { candidates: [create] }, withBudget(20)))).toEqual(["over-budget"]);
   });
 
   test("a global target needs two repositories or a Steer stated for every repository", () => {
@@ -492,6 +537,21 @@ describe("learn", () => {
     expect(report.dropped).toEqual({ budget: 1 });
   });
 
+  test("the size budget from the config reaches the gate and Prune", async () => {
+    await seed(3);
+    const full: HindsightConfig = { ...config, rules: { sizeBudgetChars: RULE_TEXT.length } };
+
+    const report = await Effect.runPromise(
+      learn({ ifDue: false, inventoryEnv: { home } }, full, NOW).pipe(
+        Effect.provideService(Store, store),
+        Effect.provideService(ClaudeRunner, scriptedRunner([{ candidates: [candidate()] }])),
+      ),
+    );
+
+    expect(report).toMatchObject({ proposals: 0, dropped: { "over-budget": 1 }, pruned: 1 });
+    expect((await proposals()).map((row) => row.source)).toEqual(["prune"]);
+  });
+
   test("Notes older than the window expire before the run", async () => {
     await seed(2);
     await Effect.runPromise(
@@ -661,11 +721,21 @@ describe("toNoteView and planGroups", () => {
   });
 });
 
+describe("learnPrompt", () => {
+  test("gives the model each Rule File's length and the size budget", () => {
+    const prompt = learnPrompt(group, 10_000);
+    expect(prompt).toContain('"sizeBudgetChars": 10000');
+    expect(prompt).toContain(`"chars": ${RULE_TEXT.length}`);
+  });
+});
+
 describe("prune", () => {
   test("a dead glob becomes a description Proposal once, filtered by the Ledger", async () => {
     const store = await Effect.runPromise(makeStore(":memory:"));
 
-    const first = await Effect.runPromise(prune([repo.root], { home }, NOW).pipe(Effect.provideService(Store, store)));
+    const first = await Effect.runPromise(
+      prune([repo.root], { home }, 10_000, NOW).pipe(Effect.provideService(Store, store)),
+    );
 
     expect(first).toMatchObject({ repos: 1, proposals: 1, skipped: {} });
     expect(first.findings).toBeGreaterThanOrEqual(1);
@@ -678,7 +748,9 @@ describe("prune", () => {
     expect(JSON.parse(rows[0]?.change_json ?? "")).toMatchObject({ kind: "description" });
     expect(rows[0]?.claim_fr).toContain("legacy/**");
 
-    const second = await Effect.runPromise(prune([repo.root], { home }, NOW).pipe(Effect.provideService(Store, store)));
+    const second = await Effect.runPromise(
+      prune([repo.root], { home }, 10_000, NOW).pipe(Effect.provideService(Store, store)),
+    );
 
     expect(second.skipped).toEqual({ "already-pending": first.findings });
     await Effect.runPromise(
@@ -694,9 +766,60 @@ describe("prune", () => {
       }),
     );
 
-    const third = await Effect.runPromise(prune([repo.root], { home }, NOW).pipe(Effect.provideService(Store, store)));
+    const third = await Effect.runPromise(
+      prune([repo.root], { home }, 10_000, NOW).pipe(Effect.provideService(Store, store)),
+    );
 
     expect(third.skipped).toEqual({ "ledger-rejected": first.findings });
     expect(await Effect.runPromise(knownRepos.pipe(Effect.provideService(Store, store)))).toEqual([repo.root]);
+  });
+
+  test("a Rule File over the size budget, global ones included, becomes a description once, held by the Ledger until the budget changes", async () => {
+    const store = await Effect.runPromise(makeStore(":memory:"));
+    const budgetHome = tempDir("home-budget");
+    writeTree(budgetHome, { ".claude/AGENTS.md": `# Global\n\n${"- Keep every answer short and plain.\n".repeat(3)}` });
+    const globalAgents = join(budgetHome, ".claude/AGENTS.md");
+
+    const scan = async (budget: number): Promise<PruneReport> =>
+      Effect.runPromise(
+        prune([repo.root], { home: budgetHome }, budget, NOW).pipe(Effect.provideService(Store, store)),
+      );
+
+    const budgetRows = async (budget: number): Promise<ProposalRow[]> =>
+      Effect.runPromise(
+        store.all<ProposalRow>("SELECT * FROM proposals WHERE fingerprint IN (?, ?) ORDER BY scope", [
+          budgetFingerprint(globalAgents, budget),
+          budgetFingerprint(AGENTS, budget),
+        ]),
+      );
+
+    try {
+      expect(await scan(60)).toMatchObject({ proposals: 3, skipped: {} });
+      const rows = await budgetRows(60);
+
+      expect(rows.map((row) => [row.scope, row.repo_root, row.target_path, row.state])).toEqual([
+        ["global", null, globalAgents, "pending"],
+        ["repo", repo.root, AGENTS, "pending"],
+      ]);
+      expect(rows.map((row) => decodeChange(row.change_json).kind)).toEqual(["description", "description"]);
+      expect(rows[1]?.claim_fr).toBe(`AGENTS.md compte ${RULE_TEXT.length} caractères, au-delà du budget de 60.`);
+      expect((await scan(60)).skipped).toEqual({ "already-pending": 3 });
+
+      await Effect.runPromise(
+        store.transaction((db) => {
+          db.run("UPDATE proposals SET state = 'rejected' WHERE id = ?", [rows[1]?.id ?? ""]);
+          db.run(
+            "INSERT INTO decisions (proposal_id, fingerprint, at, decision, reason, sessions_at_decision) VALUES (?, ?, ?, 'rejected', 'keep', 0)",
+            [rows[1]?.id ?? "", rows[1]?.fingerprint ?? "", NOW],
+          );
+        }),
+      );
+
+      expect((await scan(60)).skipped).toEqual({ "already-pending": 2, "ledger-rejected": 1 });
+      expect(await scan(50)).toMatchObject({ proposals: 2, skipped: { "already-pending": 1 } });
+      expect((await budgetRows(50)).map((row) => row.target_path)).toEqual([globalAgents, AGENTS]);
+    } finally {
+      rmSync(budgetHome, { recursive: true, force: true });
+    }
   });
 });

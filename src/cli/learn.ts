@@ -71,8 +71,13 @@ export const pruneCommand = Command.make(
     ),
   },
   Effect.fn(function* ({ repo }) {
+    const config = yield* AppConfig;
     const known = yield* knownRepos;
     const roots = [...known, ...Option.toArray(repo)];
-    yield* printJson(yield* prune(roots, defaultInventoryEnv()));
+    yield* printJson(yield* prune(roots, defaultInventoryEnv(), config.rules.sizeBudgetChars));
   }),
-).pipe(Command.withDescription("Code checks over the Rule Files: dead globs, gone paths, missing scripts"));
+).pipe(
+  Command.withDescription(
+    "Code checks over the Rule Files: dead globs, gone paths, missing scripts, files over the size budget",
+  ),
+);
