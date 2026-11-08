@@ -594,6 +594,11 @@ describe("learnPrompt", () => {
     const prompt = learnPrompt(group, 10_000);
     expect(prompt).toContain('"sizeBudgetChars": 10000');
     expect(prompt).toContain(`"chars": ${RULE_TEXT.length}`);
+
+    const long = "x".repeat(15_000);
+    const wide: LearnGroup = { ...group, rules: [{ file: group.rules[0]!.file, text: long }] };
+    expect(learnPrompt(wide, 10_000)).not.toContain(long);
+    expect(learnPrompt(wide, 16_000)).toContain(long);
   });
 });
 

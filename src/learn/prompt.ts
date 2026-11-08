@@ -85,7 +85,7 @@ export function learnPrompt(group: LearnGroup, sizeBudgetChars: number): string 
       paths: rule.file.paths,
       chars: rule.text.length,
       bullets: rule.file.bullets.map((bullet) => ({ id: bullet.id, line: bullet.line, text: bullet.text })),
-      text: rule.text.slice(0, RULE_TEXT_MAX),
+      text: rule.text.slice(0, Math.max(RULE_TEXT_MAX, sizeBudgetChars)),
     })),
     notes: group.notes.map((note) => ({
       id: note.id,
