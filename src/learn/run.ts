@@ -2,7 +2,7 @@ import type { HindsightConfig } from "../domain/config.ts";
 import type { InventoryEnv } from "../rules/inventory.ts";
 import type { RuleFile } from "../rules/types.ts";
 import type { StoreError, StoreService } from "../store/db.ts";
-import type { HistoryEntry, NoteRow } from "../store/queries.ts";
+import type { HistoryEntry, LearnGroupRow, NoteRow } from "../store/queries.ts";
 import type { ModelAnswer, ModelRequest } from "./claude.ts";
 import type { GateContext, GateResult } from "./gates.ts";
 import type { LearnGroup, NoteView, RuleSource } from "./prompt.ts";
@@ -20,10 +20,13 @@ import {
   finishLearnRun,
   insertProposal,
   lastLearnFinishedAt,
+  learnGroupRows,
   ledgerHistory,
   markNotesUsed,
   pendingFingerprints,
   pendingNotes,
+  recordGroupAnswer,
+  recordGroupAttempt,
   reserveLearnRun,
 } from "../store/queries.ts";
 import { ClaudeRunner } from "./claude.ts";
@@ -65,16 +68,63 @@ const decodeObservationBody = Schema.decodeSync(
   Schema.fromJsonString(Schema.Struct({ question: Schema.Number, tool: Schema.String, excerpt: Schema.String })),
 );
 
-const decodeLoadedRules = Schema.decodeSync(Schema.fromJsonString(Schema.Array(Schema.String)));
+const decodeStringList = Schema.decodeSync(Schema.fromJsonString(Schema.Array(Schema.String)));
 
 const isLearnError = Schema.is(LearnError);
+
+export type GroupState = { readonly attemptedAt: string; readonly readNoteIds: ReadonlySet<string> };
+
+function groupStates(rows: readonly LearnGroupRow[]): Map<string, GroupState> {
+  return new Map(
+    rows.map((row): [string, GroupState] => [
+      row.group_key,
+      { attemptedAt: row.attempted_at, readNoteIds: new Set(decodeStringList(row.read_note_ids_json)) },
+    ]),
+  );
+}
+
+export type AskPlan = { readonly ask: LearnGroup[]; readonly unchanged: LearnGroup[] };
+
+/** The groups worth a call, the one tried longest ago first; a group whose pending Notes its previous answer all read has nothing new. */
+export function groupsToAsk(groups: readonly LearnGroup[], states: ReadonlyMap<string, GroupState>): AskPlan {
+  const isUnchanged = (group: LearnGroup): boolean => {
+    const read = states.get(group.key)?.readNoteIds;
+
+    return read !== undefined && group.notes.every((note) => read.has(note.id));
+  };
+
+  const lastAttempt = (group: LearnGroup): number => {
+    const attemptedAt = states.get(group.key)?.attemptedAt;
+
+    return attemptedAt === undefined ? 0 : Date.parse(attemptedAt);
+  };
+
+  return {
+    ask: groups.filter((group) => !isUnchanged(group)).toSorted((a, b) => lastAttempt(a) - lastAttempt(b)),
+    unchanged: groups.filter(isUnchanged),
+  };
+}
+
+function unchangedDrops(unchanged: readonly LearnGroup[]): Record<string, number> {
+  const notes = unchanged.reduce((sum, group) => sum + group.notes.length, 0);
+
+  return notes === 0 ? {} : { unchanged: notes };
+}
+
+function noteIds(group: LearnGroup): string[] {
+  return group.notes.map((note) => note.id);
+}
+
+function markAttempted(store: StoreService, key: string, at: string): Effect.Effect<void, StoreError> {
+  return store.transaction((db) => recordGroupAttempt(db, key, at));
+}
 
 export function toNoteView(row: NoteRow): NoteView | null {
   if (row.kind === "stale_rule") {
     return null;
   }
 
-  const loadedRules = decodeLoadedRules(row.loaded_rules_json);
+  const loadedRules = decodeStringList(row.loaded_rules_json);
 
   if (row.kind === "steer") {
     const body = decodeSteerBody(row.body_json);
@@ -177,6 +227,7 @@ type Reserved = {
   readonly notes: NoteRow[];
   readonly history: HistoryEntry[];
   readonly pending: Set<string>;
+  readonly groupStates: ReadonlyMap<string, GroupState>;
 };
 
 type Skipped = { readonly skipped: string };
@@ -211,7 +262,13 @@ function reserve(
       return { skipped: "running" };
     }
 
-    return { runId, notes, history: ledgerHistory(db), pending: pendingFingerprints(db) };
+    return {
+      runId,
+      notes,
+      history: ledgerHistory(db),
+      pending: pendingFingerprints(db),
+      groupStates: groupStates(learnGroupRows(db)),
+    };
   });
 }
 
@@ -330,7 +387,10 @@ export const learn = (
       pending: reserved.pending,
     };
 
-    for (const group of groups) {
+    const { ask, unchanged } = groupsToAsk(groups, reserved.groupStates);
+    Object.assign(dropped, unchangedDrops(unchanged));
+
+    for (const group of ask) {
       const remaining = Math.floor((config.learn.maxBudgetUsd - costUsd) * 100) / 100;
 
       if (remaining < MIN_CALL_USD) {
@@ -352,6 +412,7 @@ export const learn = (
 
       if ("failure" in outcome) {
         failures.push(outcome.failure);
+        yield* markAttempted(store, group.key, nowIso);
         continue;
       }
 
@@ -368,6 +429,7 @@ export const learn = (
         }
 
         markNotesUsed(db, gated.usedNoteIds);
+        recordGroupAnswer(db, group.key, nowIso, noteIds(group));
       });
       proposals += gated.proposals.length;
     }

@@ -466,9 +466,38 @@ export function finishLearnRun(
   );
 }
 
+/** A run that went stale never did its work, so it does not hold the next run back. */
 export function lastLearnFinishedAt(db: SyncStore): string | null {
   return (
-    db.get<{ at: string | null }>("SELECT MAX(finished_at) AS at FROM learn_runs WHERE status = 'complete'")?.at ?? null
+    db.get<{ at: string | null }>(
+      "SELECT MAX(finished_at) AS at FROM learn_runs WHERE status IN ('complete', 'failed') AND failure IS NOT 'stale'",
+    )?.at ?? null
+  );
+}
+
+export type LearnGroupRow = {
+  readonly group_key: string;
+  readonly attempted_at: string;
+  readonly read_note_ids_json: string;
+};
+
+export function learnGroupRows(db: SyncStore): LearnGroupRow[] {
+  return db.all<LearnGroupRow>("SELECT group_key, attempted_at, read_note_ids_json FROM learn_groups");
+}
+
+export function recordGroupAttempt(db: SyncStore, key: string, at: string): void {
+  db.run(
+    "INSERT INTO learn_groups (group_key, attempted_at) VALUES (?, ?) ON CONFLICT (group_key) DO UPDATE SET attempted_at = excluded.attempted_at",
+    [key, at],
+  );
+}
+
+/** Each answer reads every pending Note of its group, so the last answer's ids are all that group has read. */
+export function recordGroupAnswer(db: SyncStore, key: string, at: string, noteIds: readonly string[]): void {
+  db.run(
+    `INSERT INTO learn_groups (group_key, attempted_at, read_note_ids_json) VALUES (?, ?, ?)
+     ON CONFLICT (group_key) DO UPDATE SET attempted_at = excluded.attempted_at, read_note_ids_json = excluded.read_note_ids_json`,
+    [key, at, JSON.stringify(noteIds)],
   );
 }
 
