@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "baseBranchPatterns": ["dev"],
-  "enabledManagers": ["mise", "github-actions"],
+  "enabledManagers": ["mise"],
   "packageRules": [
     {
       "description": "The two bengous/stack-watch includes of mise.toml move together, in one PR to the newest toolchain-YYYY.MM.DD tag, merged once every check is green. semver-coerced, the default versioning, reads such a tag as unstable and proposes nothing. The year is the major, so the yearly tag merges too. A tag is the owner's own release: it skips the release age.",
